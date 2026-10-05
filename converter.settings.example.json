@@ -1,0 +1,5 @@
+{
+  "InputDirectory": "D:/Music/NCM",
+  "OutputDirectory": "D:/Music/Converted",
+  "FfmpegPath": "D:/Tools/ffmpeg/bin/ffmpeg.exe"
+}
