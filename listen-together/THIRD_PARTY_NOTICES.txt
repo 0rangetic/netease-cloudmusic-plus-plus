@@ -1,0 +1,36 @@
+﻿网易云多人一起听补丁 0.4.2
+
+Runtime
+Node.js v24.19.0 x64 is redistributed as an unmodified executable.
+Copyright Node.js contributors. Full Node.js and bundled component licenses
+are included in runtime/LICENSE.txt. See https://nodejs.org/ and
+https://github.com/nodejs/node/blob/v24.19.0/LICENSE .
+
+Native hot-attach runtime
+The toolbox distribution includes a complete Python environment under
+runtime/python with Frida and psutil. A standalone portable build includes
+only Node.js by default; Python is optional via the build's PythonDirectory
+parameter or an external absolute python.exe path in NCM_MULTI_PYTHON.
+Plain Node.js alone cannot attach to a normally started running client.
+Keep the Python distribution's license and each dependency's accompanying
+license files when redistributing this optional environment.
+Upstream projects:
+Python: https://www.python.org/ and https://docs.python.org/3/license.html
+Frida: https://frida.re/ and https://github.com/frida/frida
+psutil: https://github.com/giampaolo/psutil
+
+The native adapter uses the running client's CEF DevTools API. Its C API
+layout reference is the upstream CEF 4472 headers:
+https://github.com/chromiumembedded/cef/tree/4472/include/capi
+No CEF or NetEase client binaries are included in this patch.
+
+Protocol research references (implementation independently written):
+https://github.com/tabidachinokaze/music-party/blob/main/docs/OFFICIAL-MULTIPLAYER.md
+https://github.com/tabidachinokaze/music-party/blob/main/src/main/multi-api.ts
+https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced/blob/main/module/register_checktoken_v3.js
+https://st.music.163.com/listen-together/multishare/index.html
+
+The package does not include NetEase Cloud Music, third-party client source,
+decompiled application resources, personal login data, or account credentials.
+NetEase Cloud Music and related names remain the property of their owners.
+This is an unofficial experimental compatibility patch.

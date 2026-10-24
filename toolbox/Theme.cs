@@ -133,7 +133,7 @@ namespace NeteaseToolbox
             var input = control is TextBoxBase || control is ComboBox || control is ListView || control is ListBox || control is CachedSongTable;
             if (input) {
                 control.BackColor = theme.Panel;
-                control.ForeColor = control == memoryLifeRecallPath ? theme.Muted : theme.Ink;
+                control.ForeColor = theme.Ink;
             }
             var button = control as Button;
             if (button != null) {

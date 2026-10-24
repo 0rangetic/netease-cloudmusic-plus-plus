@@ -16,14 +16,26 @@ namespace NeteaseToolbox
         private void BuildAccountUi(Control sidebar)
         {
             accountButton.Name = "NeteaseLoginButton"; accountButton.Text = "登录网易云";
-            accountButton.Location = new Point(16, 310); accountButton.Size = new Size(138, 40);
+            accountButton.Location = new Point(16, 0); accountButton.Size = new Size(138, 40);
             StyleButton(accountButton, ButtonRole.Secondary);
             accountButton.Click += delegate { ShowNeteaseLogin(); };
-            accountStatus.Name = "NeteaseAccountStatus"; accountStatus.Location = new Point(18, 358);
+            accountStatus.Name = "NeteaseAccountStatus"; accountStatus.Location = new Point(18, 0);
             accountStatus.Size = new Size(136, 58); accountStatus.ForeColor = muted;
-            accountAvatar.Location = new Point(18, 422); accountAvatar.Size = new Size(36, 36); accountAvatar.SizeMode = PictureBoxSizeMode.Zoom;
+            accountAvatar.Location = new Point(18, 0); accountAvatar.Size = new Size(36, 36); accountAvatar.SizeMode = PictureBoxSizeMode.Zoom;
             sidebar.Controls.Add(accountButton); sidebar.Controls.Add(accountStatus); sidebar.Controls.Add(accountAvatar);
+            LayoutAccountUi();
             UpdateAccountUi();
+        }
+        private void LayoutAccountUi()
+        {
+            var last = navigationButtons.Count == 0 ? null : navigationButtons[navigationButtons.Count - 1];
+            if (last == null) return;
+            int buttonTop = last.Bottom + 18;
+            if (accountButton.Top != buttonTop) accountButton.Top = buttonTop;
+            int statusTop = accountButton.Bottom + 6;
+            if (accountStatus.Top != statusTop) accountStatus.Top = statusTop;
+            int avatarTop = accountStatus.Bottom + 10;
+            if (accountAvatar.Top != avatarTop) accountAvatar.Top = avatarTop;
         }
         private void UpdateAccountUi()
         {

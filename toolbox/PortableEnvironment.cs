@@ -52,7 +52,7 @@ namespace NeteaseToolbox
         {
             using (var dialog = new FolderBrowserDialog())
             {
-                dialog.Description = "选择包含 cloudmusic.exe 的网易云音乐安装目录（三行歌词仅适配 3.1.41 x64 Build 205529）";
+                dialog.Description = "选择包含 cloudmusic.exe 的网易云音乐安装目录（三行歌词适配 3.1.41 x64 Build 205529 与 3.1.42 x64 Build 205594）";
                 dialog.SelectedPath = ClientFolder();
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 try
@@ -103,7 +103,12 @@ namespace NeteaseToolbox
                     int missing = 0;
                     foreach (var relative in new[] { "convert.ps1", "ffmpeg.exe", @"runtime\python\python.exe",
                         @"runtime\node\node.exe", "portable_report.py", "Microsoft.Web.WebView2.Core.dll",
-                        "Microsoft.Web.WebView2.WinForms.dll", "WebView2Loader.dll", @"Lyric3\launcher.py" })
+                        "Microsoft.Web.WebView2.WinForms.dll", "WebView2Loader.dll", @"Lyric3\launcher.py",
+                        @"multi-listen\control.mjs", @"multi-listen\runtime.js", @"multi-listen\protocol.mjs",
+                        @"multi-listen\version.mjs",
+                        @"multi-listen\native-client.mjs", @"multi-listen\native-host.mjs",
+                        @"multi-listen\native_bridge.py", @"multi-listen\native-agent.js",
+                        "NAudio.Core.dll", "NAudio.Wasapi.dll" })
                     {
                         bool exists = File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, relative));
                         messages.AppendLine((exists ? "✓ " : "缺少：") + relative);
@@ -124,7 +129,7 @@ namespace NeteaseToolbox
                     try { messages.AppendLine("✓ WebView2：" + CoreWebView2Environment.GetAvailableBrowserVersionString()); }
                     catch { missing++; messages.AppendLine("WebView2 未安装：运行随包的“配置运行环境.cmd”，联网安装。音乐转换不受影响。"); }
                     messages.AppendLine(Directory.Exists(InputRoot) ? "✓ 音乐目录：" + InputRoot : "待配置：在音乐转换页选择音乐目录。");
-                    messages.AppendLine(File.Exists(Path.Combine(ClientFolder(), "cloudmusic.exe")) ? "✓ 网易云客户端：" + ClientFolder() : "可选配置：三行歌词需选择兼容的网易云安装目录。");
+                    messages.AppendLine(File.Exists(Path.Combine(ClientFolder(), "cloudmusic.exe")) ? "✓ 网易云客户端：" + ClientFolder() : "可选配置：三行歌词与多人一起听需选择兼容的网易云安装目录。");
                     messages.AppendLine("账号和 AI 密钥需要在新电脑重新配置；播放记录、分析缓存保存在该电脑的当前 Windows 用户目录。");
                     return new Tuple<int, string>(missing, messages.ToString());
                 });

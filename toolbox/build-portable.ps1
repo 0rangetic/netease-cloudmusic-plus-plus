@@ -6,15 +6,15 @@ if (-not $Destination) { $Destination = Join-Path $project ('dist\网易云工�
 $Destination = [IO.Path]::GetFullPath($Destination)
 if (Test-Path -LiteralPath $Destination) { throw '目标目录已存在，请使用新的空目录，避免混入旧配置或个人数据。' }
 New-Item -ItemType Directory -Path $Destination | Out-Null
-$files = @('网易云工具箱.exe', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll',
+$files = @('网易云工具箱.exe', 'NAudio.Core.dll', 'NAudio.Wasapi.dll', 'NAudio-LICENSE.txt', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll',
     'WebView2Loader.dll', 'netease_auth.py', 'portable_paths.py', 'portable_report.py', 'genre_analysis.py',
     'library_analysis.py', 'memory_recall.py', 'portrait_ai.py', 'profile_analysis.py', 'profile_fetch.py',
-    'profile_first_listen.js', 'SetupEnvironment.ps1', '配置运行环境.cmd')
+    'profile_first_listen.js', 'local_playback.mjs', 'SetupEnvironment.ps1', 'RegisterSigninTask.ps1', '配置运行环境.cmd')
 foreach ($name in $files) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $Destination }
 Copy-Item -LiteralPath (Join-Path $project 'convert.ps1'), (Join-Path $project '一键转换.ps1') -Destination $Destination
 Copy-Item -LiteralPath (Join-Path $project 'music-profile\refresh_listening_report.py') -Destination $Destination
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'portable-README.txt') -Destination (Join-Path $Destination '使用说明.txt')
-foreach ($folder in @('runtime\python', 'runtime\node', 'installers', 'Lyric3', 'vendor')) {
+foreach ($folder in @('runtime\python', 'runtime\node', 'installers', 'vendor', 'multi-listen')) {
     $source = Join-Path $PSScriptRoot $folder
     foreach ($file in Get-ChildItem -LiteralPath $source -File -Recurse) {
         if ($file.FullName -match '[\\/]__pycache__[\\/]' -or $file.Extension -in '.pyc','.log') { continue }
@@ -23,6 +23,13 @@ foreach ($folder in @('runtime\python', 'runtime\node', 'installers', 'Lyric3', 
         New-Item -ItemType Directory -Path (Split-Path $target -Parent) -Force | Out-Null
         Copy-Item -LiteralPath $file.FullName -Destination $target
     }
+}
+# Package maintained lyric sources directly; the ignored staging folder may
+# still contain a launcher for an older client build.
+$lyricDestination = Join-Path $Destination 'Lyric3'
+New-Item -ItemType Directory -Path $lyricDestination -Force | Out-Null
+foreach ($name in @('launcher.py', 'triline_agent.js', 'compatibility.py', 'compatibility_profiles.json', 'COMPATIBILITY.md')) {
+    Copy-Item -LiteralPath (Join-Path (Join-Path $project 'desktop-lyrics') $name) -Destination $lyricDestination
 }
 $ffmpeg = Join-Path $PSScriptRoot 'ffmpeg.exe'
 if (-not (Test-Path -LiteralPath $ffmpeg)) { throw '构建便携包前，请将 FFmpeg 和其许可证放在 toolbox 目录。' }

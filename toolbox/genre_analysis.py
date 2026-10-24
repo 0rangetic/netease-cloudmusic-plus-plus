@@ -147,6 +147,71 @@ def emit_library_tracks(AES):
             emit("TRACK", b64("netease://song/"+song_id), b64(title), b64("红心歌单"))
 
 
+def playlist_tag_map(db):
+    local_ids = {}
+    try:
+        AES = get_aes()
+        if INPUT_ROOT.is_dir():
+            for path in INPUT_ROOT.rglob("*.ncm"):
+                try: local_ids[path.stem.casefold()] = read_song_id(path, AES)
+                except Exception: pass
+    except Exception:
+        pass
+    result = {}
+    for path, genre, others, mood, status, manual in db.execute(
+            "SELECT audio_path,genre,influences,mood,status,manual FROM analysis"):
+        if path.startswith("netease://song/"):
+            song_id = path.rsplit("/", 1)[-1]
+        else:
+            song_id = local_ids.get(pathlib.Path(path).stem.casefold())
+        if not song_id: continue
+        genres = ([] if not genre or genre == "暂无标签" else [genre])
+        genres += [part.strip() for part in (others or "").split(" / ") if part.strip()]
+        moods = [part.strip() for part in (mood or "").split(" / ") if part.strip()]
+        current = result.get(song_id)
+        if current is None or manual:
+            result[song_id] = {
+                "genres": list(dict.fromkeys(genres)),
+                "moods": list(dict.fromkeys(moods + (current or {}).get("moods", []))),
+            }
+        else:
+            current["genres"] = list(dict.fromkeys(current["genres"] + genres))
+            current["moods"] = list(dict.fromkeys(current["moods"] + moods))
+    return result
+
+
+def emit_playlist_candidates(db):
+    from netease_auth import liked_playlist_id
+    playlist_id = liked_playlist_id()
+    if not playlist_id: raise RuntimeError("尚未登录网易云，无法读取红心歌单。")
+    detail = public_json("https://music.163.com/api/v6/playlist/detail?id={}&n=100000&s=0".format(playlist_id))
+    playlist = detail.get("playlist") or {}
+    ids = list(dict.fromkeys(str(item["id"]) for item in playlist.get("trackIds") or []))
+    metadata = {}
+    for song in playlist.get("tracks") or []:
+        people = song.get("ar") or song.get("artists") or []
+        metadata[str(song["id"])] = (song.get("name", ""), "/".join(x.get("name", "") for x in people))
+    missing = [song_id for song_id in ids if song_id not in metadata]
+    for start in range(0, len(missing), 100):
+        batch = missing[start:start + 100]
+        url = "https://music.163.com/api/song/detail?ids=" + urllib.parse.quote(json.dumps(batch, separators=(",", ":")))
+        for song in public_json(url).get("songs", []):
+            people = song.get("ar") or song.get("artists") or []
+            metadata[str(song["id"])] = (song.get("name", ""), "/".join(x.get("name", "") for x in people))
+    tags = playlist_tag_map(db)
+    tagged = sum(1 for song_id in ids if tags.get(song_id, {}).get("moods") or tags.get(song_id, {}).get("genres"))
+    emit("PLAYLIST_META", b64(json.dumps({
+        "playlistId": playlist_id, "liked": len(ids), "tagged": tagged, "untagged": len(ids) - tagged,
+    }, ensure_ascii=False)))
+    for song_id in ids:
+        title, artist = metadata.get(song_id, ("", ""))
+        info = tags.get(song_id, {})
+        emit("PLAYLIST_SONG", b64(json.dumps({
+            "songId": song_id, "title": title, "artist": artist,
+            "genres": info.get("genres", []), "moods": info.get("moods", []),
+        }, ensure_ascii=False)))
+
+
 def source_ncm(audio_path, index):
     matches = index.get(pathlib.Path(audio_path).stem.casefold(), [])
     if len(matches) == 1: return matches[0]
@@ -225,12 +290,14 @@ def main():
     parser.add_argument("--export"); parser.add_argument("--set",action="store_true"); parser.add_argument("--clear-old",action="store_true")
     parser.add_argument("--library-list",action="store_true")
     parser.add_argument("--library-analyze",action="store_true")
+    parser.add_argument("--playlist-candidates",action="store_true")
     parser.add_argument("--primary",default=""); parser.add_argument("--influences",default=""); parser.add_argument("files",nargs="*"); args=parser.parse_args()
     if args.input_root is not None: INPUT_ROOT = pathlib.Path(args.input_root) if args.input_root else pathlib.Path(__file__).resolve().parent / "music"
     db=database(pathlib.Path(args.db))
     try:
         if args.clear_old: db.execute("DELETE FROM analysis WHERE model_version<>?",(VERSION,)); db.commit()
         if args.library_list: emit_library_tracks(get_aes()); return 0
+        if args.playlist_candidates: emit_playlist_candidates(db); return 0
         if args.library_analyze:
             AES=get_aes(); saved=cookie_text(); index=build_ncm_index()
             downloaded=set()

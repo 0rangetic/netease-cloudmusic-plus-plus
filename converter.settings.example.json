@@ -1,5 +1,5 @@
 {
-  "InputDirectory": "D:/Music/NCM",
-  "OutputDirectory": "D:/Music/Converted",
-  "FfmpegPath": "D:/Tools/ffmpeg/bin/ffmpeg.exe"
+  "InputDirectory": "./music",
+  "OutputDirectory": "./converted",
+  "FfmpegPath": "./ffmpeg/bin/ffmpeg.exe"
 }

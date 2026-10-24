@@ -16,12 +16,12 @@ using System.Windows.Forms;
 using System.Web.Script.Serialization;
 
 [assembly: AssemblyTitle("网易云工具箱")]
-[assembly: AssemblyDescription("网易云账号播放记录、音乐记忆检索、转换、曲风分析、听歌画像与桌面歌词工具箱")]
+[assembly: AssemblyDescription("网易云账号播放记录、音乐记忆检索、转换、曲风分析、听歌画像、多人一起听、桌面歌词与音频转麦克风工具箱")]
 [assembly: AssemblyProduct("网易云工具箱")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyVersion("1.17.0.0")]
-[assembly: AssemblyFileVersion("1.17.0.0")]
-[assembly: AssemblyInformationalVersion("1.17.0.0")]
+[assembly: AssemblyVersion("1.29.0.0")]
+[assembly: AssemblyFileVersion("1.29.0.0")]
+[assembly: AssemblyInformationalVersion("1.29.0.0")]
 
 namespace NeteaseToolbox
 {
@@ -39,6 +39,18 @@ namespace NeteaseToolbox
         [STAThread]
         private static void Main(string[] args)
         {
+            if (args.Any(arg => string.Equals(arg, "--daily-signin", StringComparison.OrdinalIgnoreCase))) {
+                try {
+                    var result = DailySigninService.Run(args.Any(arg => string.Equals(arg, "--scheduled", StringComparison.OrdinalIgnoreCase)), null);
+                    Environment.ExitCode = result.Skipped || result.Phase == "完成" ? 0 : 1;
+                    string error = Path.Combine(DailySigninService.Root, "daily-signin-runner-error.json");
+                    if (File.Exists(error)) File.Delete(error);
+                } catch (Exception ex) {
+                    Environment.ExitCode = 1;
+                    try { DailySigninService.SaveJson(Path.Combine(DailySigninService.Root, "daily-signin-runner-error.json"), new SigninEvent { Time = DateTimeOffset.Now.ToOffset(DailySigninService.ChinaOffset).ToString("yyyy-MM-dd HH:mm:ss"), Task = "每日签到", Phase = "失败", Detail = DailySigninService.SafeError(ex) }); } catch { }
+                }
+                return;
+            }
             bool created;
             instanceMutex = new Mutex(true, @"Local\NeteaseToolboxPlaybackCapture", out created);
             if (!created)
@@ -127,7 +139,6 @@ namespace NeteaseToolbox
         private string profileDatabasePath { get { return Path.Combine(NeteaseAuth.AccountFolder("Profile"), "netease-profile.json"); } }
         private readonly string outputSettingPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "output-folder.txt");
         private string playbackHistoryPath { get { return Path.Combine(NeteaseAuth.AccountFolder("Playback"), "play-history.csv"); } }
-        private readonly string memoryRecallFolderSettingPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"NeteaseToolbox\MemoryRecall\life-recall-folder.txt");
         private readonly string genreDatabasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"NeteaseToolbox\GenreAnalysis\analysis.sqlite3");
         private string pythonPath { get { return FindGenrePython(); } }
         private string launcherPath { get { return Path.Combine(LyricFolder(), "launcher.py"); } }
@@ -169,17 +180,14 @@ namespace NeteaseToolbox
         private readonly RichTextBox recentPortraitText = new WallpaperRichTextBox();
         private readonly ListView recentGenreComparison = new WallpaperListView();
         private readonly WallpaperRichTextBox memoryQuery = new WallpaperRichTextBox { DetectUrls = false };
-        private readonly WallpaperRichTextBox memoryLifeRecallPath = new WallpaperRichTextBox { DetectUrls = false, Multiline = false };
         private readonly CheckBox memoryLimitDates = new CheckBox();
         private readonly DateTimePicker memoryStartDate = new DateTimePicker();
         private readonly DateTimePicker memoryEndDate = new DateTimePicker();
         private readonly CheckBox memoryUseAi = new CheckBox();
         private readonly Button memorySearchButton = new Button();
-        private readonly Button memoryChooseFolderButton = new Button();
         private readonly Label memorySourceStatus = new Label();
         private readonly ListView memoryResults = new WallpaperListView();
-        private readonly WallpaperRichTextBox memoryEvidence = new WallpaperRichTextBox();
-        private string lifeRecallDirectory;
+        private readonly WallpaperRichTextBox memoryEvidence = new WallpaperRichTextBox { UseUniformFont = true };
         private readonly Dictionary<string, ListViewItem> genreRows = new Dictionary<string, ListViewItem>(StringComparer.OrdinalIgnoreCase);
         private readonly List<Button> navigationButtons = new List<Button>();
         private readonly List<Control> navigationPages = new List<Control>();
@@ -228,16 +236,6 @@ namespace NeteaseToolbox
                 }
             }
             catch { outputRoot = null; }
-            lifeRecallDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "LifeRecall");
-            try
-            {
-                if (File.Exists(memoryRecallFolderSettingPath))
-                {
-                    var saved = File.ReadAllText(memoryRecallFolderSettingPath, Encoding.UTF8).Trim();
-                    if (saved.Length > 0) lifeRecallDirectory = Path.GetFullPath(saved);
-                }
-            }
-            catch { }
             try
             {
                 if (File.Exists(inputSettingPath)) InputRoot = ResolvePortablePath(File.ReadAllText(inputSettingPath, Encoding.UTF8).Trim());
@@ -262,6 +260,7 @@ namespace NeteaseToolbox
             ConfigureInputWatcher();
             Shown += async delegate
             {
+                await StartLocalPlayback();
                 try { EnsureAutoStart(); }
                 catch (Exception ex) { ReportTask("播放记录", "失败", "登录启动项注册失败：" + ex.Message); }
                 await CheckNeteaseSession();
@@ -362,6 +361,7 @@ namespace NeteaseToolbox
                 if (freeze) { SendUiMessage(host.Handle, 0xB, new IntPtr(1), IntPtr.Zero); host.Invalidate(true); }
             }
             if (index == 0) UpdateConversionSelectionButtons();
+            if (index == 7) OnMultiListenPageOpened();
         }
 
         private void BuildUi()
@@ -431,7 +431,7 @@ namespace NeteaseToolbox
             body.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.Controls.Add(body, 0, 1);
 
-            var sidebar = new WallpaperPanel { Name = "Sidebar", Dock = DockStyle.Fill, BackColor = panel };
+            var sidebar = new WallpaperPanel { Name = "Sidebar", Dock = DockStyle.Fill, BackColor = panel, AutoScroll = true };
             var navigationTitle = Label("功能", 9, true, muted);
             navigationTitle.Location = new Point(18, 20);
             sidebar.Controls.Add(navigationTitle);
@@ -440,6 +440,9 @@ namespace NeteaseToolbox
             var profileNavigation = NavigationButton("ProfileNavigation", "听歌画像", 2);
             var memoryNavigation = NavigationButton("MemoryRecallNavigation", "音乐记忆", 3);
             var settingsNavigation = NavigationButton("SettingsNavigation", "设置与维护", 4);
+            var audioNavigation = NavigationButton("AudioForwardingNavigation", "音频转麦克风", 5);
+            var signinNavigation = NavigationButton("DailySigninNavigation", "每日签到", 6);
+            var multiListenNavigation = NavigationButton("MultiListenNavigation", "多人一起听", 7);
             conversionNavigation.Location = new Point(16, 48);
             genreNavigation.Location = new Point(16, 96);
             profileNavigation.Location = new Point(16, 144);
@@ -450,7 +453,20 @@ namespace NeteaseToolbox
             sidebar.Controls.Add(profileNavigation);
             sidebar.Controls.Add(memoryNavigation);
             sidebar.Controls.Add(settingsNavigation);
+            audioNavigation.Location = new Point(16, 288);
+            sidebar.Controls.Add(audioNavigation);
+            signinNavigation.Location = new Point(16, 336);
+            sidebar.Controls.Add(signinNavigation);
+            multiListenNavigation.Location = new Point(16, 384);
+            sidebar.Controls.Add(multiListenNavigation);
             BuildAccountUi(sidebar);
+            sidebar.Layout += delegate {
+                int width = Math.Max(110, Math.Min(138, sidebar.ClientSize.Width - 32));
+                foreach (var button in navigationButtons) if (button.Width != width) button.Width = width;
+                if (accountButton.Width != width) accountButton.Width = width;
+                accountStatus.Width = Math.Max(106, sidebar.ClientSize.Width - 36);
+                LayoutAccountUi();
+            };
             body.Controls.Add(sidebar, 0, 0);
 
             var pageHost = new WallpaperPanel { Name = "PageHost", Dock = DockStyle.Fill, BackColor = background };
@@ -559,9 +575,10 @@ namespace NeteaseToolbox
             };
             conversionPage.Controls.Add(conversionFooter, 0, 2);
 
-            var genrePage = new TableLayoutPanel { Name = "GenrePage", Dock = DockStyle.Fill, Padding = new Padding(24, 18, 24, 18), ColumnCount = 1, RowCount = 2 };
+            var genrePage = new TableLayoutPanel { Name = "GenrePage", Dock = DockStyle.Fill, Padding = new Padding(24, 18, 24, 18), ColumnCount = 1, RowCount = 3 };
             genrePage.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             genrePage.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
+            genrePage.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
             genrePage.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             var genreHeader = new WallpaperPanel { Name = "GenreHeader", Dock = DockStyle.Fill };
             var genreTitle = Label("曲风分析", 13, true, ink);
@@ -590,9 +607,16 @@ namespace NeteaseToolbox
                 analyzeGenresButton.Left = exportGenresButton.Left - analyzeGenresButton.Width - 10;
             };
             genrePage.Controls.Add(genreHeader, 0, 0);
+            var genreToolbar = new WallpaperPanel { Name = "GenreToolbar", Dock = DockStyle.Fill };
+            var genreToolbarHint = Label("按情绪或曲风筛选红心歌曲，确认后创建新歌单。", 9, false, muted);
+            genreToolbarHint.Name = "TagPlaylistHint";
+            genreToolbarHint.Location = new Point(4, 16);
+            genreToolbar.Controls.Add(genreToolbarHint);
+            ConfigureTagPlaylistButton(genreToolbar);
+            genrePage.Controls.Add(genreToolbar, 0, 1);
             ConfigureGenreList();
             genreSongs.Name = "GenreSongList";
-            genrePage.Controls.Add(genreSongs, 0, 1);
+            genrePage.Controls.Add(genreSongs, 0, 2);
 
             var profilePage = new WallpaperPanel { Name = "ProfilePage", Dock = DockStyle.Fill, Padding = new Padding(24, 18, 24, 18) };
             ConfigureProfileTab(profilePage);
@@ -689,6 +713,15 @@ namespace NeteaseToolbox
             navigationPages.Add(profilePage);
             navigationPages.Add(memoryPage);
             navigationPages.Add(settingsPage);
+            var audioPage = BuildAudioForwardingPage();
+            navigationPages.Add(audioPage);
+            pageHost.Controls.Add(audioPage);
+            var signinPage = BuildDailySigninPage();
+            navigationPages.Add(signinPage);
+            pageHost.Controls.Add(signinPage);
+            multiListenPage = BuildMultiListenPage();
+            navigationPages.Add(multiListenPage);
+            pageHost.Controls.Add(multiListenPage);
             pageHost.Controls.Add(settingsPage);
             pageHost.Controls.Add(memoryPage);
             pageHost.Controls.Add(profilePage);
@@ -739,18 +772,8 @@ namespace NeteaseToolbox
             memorySourceStatus.ForeColor = muted;
             memorySourceStatus.Location = new Point(4, 28);
             memorySourceStatus.Size = new Size(650, 20);
-            memorySourceStatus.Text = "本机读取播放记录、歌词和 LifeRecall 位置/运动事件；照片内容暂未启用。";
+            memorySourceStatus.Text = "本机读取播放记录和歌词，按播放时间检索；不读取位置或照片数据。";
             header.Controls.Add(memorySourceStatus);
-            header.Controls.Add(memoryChooseFolderButton);
-            memoryChooseFolderButton.Name = "MemoryRecallChooseFolderButton";
-            memoryChooseFolderButton.Text = "选择时间线目录";
-            memoryChooseFolderButton.Size = new Size(132, 34);
-            StyleButton(memoryChooseFolderButton, ButtonRole.Secondary);
-            memoryChooseFolderButton.Click += delegate { ChooseLifeRecallFolder(); };
-            header.Resize += delegate {
-                memoryChooseFolderButton.Left = header.ClientSize.Width - memoryChooseFolderButton.Width;
-                memorySourceStatus.Width = Math.Max(180, memoryChooseFolderButton.Left - 12);
-            };
             page.Controls.Add(header, 0, 0);
 
             var searchPanel = new WallpaperPanel { Name = "MemoryRecallSearchPanel", Dock = DockStyle.Fill };
@@ -770,7 +793,7 @@ namespace NeteaseToolbox
                 if (e.Control && e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; await SearchMemoryRecall(); }
             };
             searchPanel.Controls.Add(memoryQuery);
-            var hint = Label("例如：9月27日中午、昨晚手机上听的歌，或记得的歌词；位置与运动只作上下文，不读取照片。", 8, false, muted);
+            var hint = Label("例如：9月27日中午、昨晚手机上听的歌，或记得的歌词。", 8, false, muted);
             hint.Location = new Point(3, 61);
             searchPanel.Controls.Add(hint);
 
@@ -826,20 +849,9 @@ namespace NeteaseToolbox
             StyleButton(memorySearchButton, ButtonRole.Primary);
             memorySearchButton.Click += async delegate { await SearchMemoryRecall(); };
             searchPanel.Controls.Add(memorySearchButton);
-
-            memoryLifeRecallPath.Name = "MemoryRecallLifeRecallPath";
-            memoryLifeRecallPath.ReadOnly = true;
-            memoryLifeRecallPath.Text = lifeRecallDirectory;
-            memoryLifeRecallPath.Location = new Point(2, 153);
-            memoryLifeRecallPath.Height = 24;
-            memoryLifeRecallPath.Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right;
-            memoryLifeRecallPath.BackColor = panel;
-            memoryLifeRecallPath.ForeColor = muted;
-            searchPanel.Controls.Add(memoryLifeRecallPath);
             searchPanel.Resize += delegate {
                 memoryQuery.Width = Math.Max(220, searchPanel.ClientSize.Width - 4);
                 memorySearchButton.Left = searchPanel.ClientSize.Width - memorySearchButton.Width;
-                memoryLifeRecallPath.Width = Math.Max(220, searchPanel.ClientSize.Width - 4);
             };
             page.Controls.Add(searchPanel, 0, 1);
 
@@ -865,38 +877,16 @@ namespace NeteaseToolbox
             memoryEvidence.Name = "MemoryRecallEvidence";
             memoryEvidence.Dock = DockStyle.Fill;
             memoryEvidence.ReadOnly = true;
+            memoryEvidence.Font = UiFont(10F);
+            memoryEvidence.DetectUrls = false;
+            memoryEvidence.ScrollBars = RichTextBoxScrollBars.Vertical;
             memoryEvidence.BackColor = panel;
             memoryEvidence.ForeColor = ink;
             memoryEvidence.BorderStyle = BorderStyle.None;
-            memoryEvidence.Text = "检索结果会在这里显示时间、歌词命中和同日 LifeRecall 上下文。";
+            memoryEvidence.Text = "检索结果会在这里显示播放时间和歌词命中。";
             split.Panel2.Controls.Add(memoryEvidence);
             page.Controls.Add(split, 0, 2);
             return page;
-        }
-
-        private void ChooseLifeRecallFolder()
-        {
-            using (var dialog = new FolderBrowserDialog())
-            {
-                dialog.Description = "选择 LifeRecall 时间线目录（只读取 Events 中的位置和运动记录）";
-                dialog.ShowNewFolderButton = false;
-                dialog.SelectedPath = Directory.Exists(lifeRecallDirectory)
-                    ? lifeRecallDirectory : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                try
-                {
-                    lifeRecallDirectory = Path.GetFullPath(dialog.SelectedPath);
-                    var parent = Path.GetDirectoryName(memoryRecallFolderSettingPath);
-                    if (!Directory.Exists(parent)) Directory.CreateDirectory(parent);
-                    File.WriteAllText(memoryRecallFolderSettingPath, lifeRecallDirectory, new UTF8Encoding(false));
-                    memoryLifeRecallPath.Text = lifeRecallDirectory;
-                    ReportTask("音乐记忆设置", "完成", "LifeRecall 目录已更新；检索仅读取位置和运动事件。");
-                }
-                catch (Exception ex)
-                {
-                    ReportTask("音乐记忆设置", "失败", "无法保存 LifeRecall 目录：" + ex.Message);
-                }
-            }
         }
 
         private async Task SearchMemoryRecall()
@@ -916,15 +906,14 @@ namespace NeteaseToolbox
 
             searchingMemory = true;
             memorySearchButton.Enabled = false;
-            memorySourceStatus.Text = "正在本机读取播放记录、歌词和非图片 LifeRecall 事件…";
-            ReportTask("音乐记忆考古", "开始", "正在检索本机播放记录、歌词及位置/运动上下文。");
+            memorySourceStatus.Text = "正在本机读取播放记录和歌词…";
+            ReportTask("音乐记忆考古", "开始", "正在检索本机播放记录及歌词。");
             try
             {
                 var serializer = new JavaScriptSerializer { MaxJsonLength = 8 * 1024 * 1024 };
                 var request = new Dictionary<string, object> {
                     { "query", memoryQuery.Text },
                     { "playbackPath", playbackHistoryPath },
-                    { "lifeRecallPath", lifeRecallDirectory },
                     { "musicRoots", new[] { InputRoot, outputRoot }.Where(path => !string.IsNullOrEmpty(path)).Distinct().ToArray() },
                     { "limit", 40 }
                 };
@@ -1054,19 +1043,9 @@ namespace NeteaseToolbox
             if (summary == null) return;
             string from = RecallValue(summary, "playFrom"), to = RecallValue(summary, "playTo");
             string range = string.IsNullOrWhiteSpace(from) ? "暂无播放记录" : from == to ? from : from + " 至 " + to;
-            string kindsText = "";
-            if (summary.ContainsKey("lifeKinds") && summary["lifeKinds"] is Dictionary<string, object>)
-            {
-                var kinds = (Dictionary<string, object>)summary["lifeKinds"];
-                var parts = new List<string>();
-                foreach (string kind in new[] { "location", "movement" })
-                    if (kinds.ContainsKey(kind)) parts.Add((kind == "location" ? "位置 " : "运动 ") + Convert.ToString(kinds[kind]));
-                if (parts.Count > 0) kindsText = "；LifeRecall " + string.Join("、", parts);
-                if (kinds.ContainsKey("photo")) kindsText += "；照片事件未处理 " + Convert.ToString(kinds["photo"]);
-            }
             memorySourceStatus.Text = string.Format(CultureInfo.InvariantCulture,
-                "播放记录 {0} 条（{1}）；本地歌词匹配 {2}/{0} 首；{3}。未读取照片内容。",
-                RecallValue(summary, "playCount"), range, RecallValue(summary, "lyricsMatchedSongs"), kindsText.TrimStart('；'));
+                "播放记录 {0} 条（{1}）；本地歌词匹配 {2}/{0} 首。",
+                RecallValue(summary, "playCount"), range, RecallValue(summary, "lyricsMatchedSongs"));
             tips.SetToolTip(memorySourceStatus, "播放记录由网易云最近播放接口同步；接口不支持翻页且按间隔轮询，记录缺失不代表当时没有听歌。");
         }
 
@@ -1095,7 +1074,7 @@ namespace NeteaseToolbox
             }
             else
             {
-                memoryEvidence.Text = "没有找到匹配项。可以补充日期/时段、歌曲名、艺人名或一段本地歌词；当前版本不检索照片内容，也不会从位置坐标推断地点名称。播放记录有接口采集窗口，未记录不等于没听过。";
+                memoryEvidence.Text = "没有找到匹配项。可以补充日期/时段、歌曲名、艺人名或一段本地歌词。播放记录有接口采集窗口，未记录不等于没听过。";
             }
         }
 
@@ -1114,13 +1093,6 @@ namespace NeteaseToolbox
             detail.AppendLine("本机检索依据");
             var evidence = item.ContainsKey("evidence") ? item["evidence"] as System.Collections.ArrayList : null;
             if (evidence != null) foreach (var line in evidence) detail.AppendLine("• " + Convert.ToString(line));
-            var contexts = item.ContainsKey("contexts") ? item["contexts"] as System.Collections.ArrayList : null;
-            if (contexts != null && contexts.Count > 0)
-            {
-                detail.AppendLine();
-                detail.AppendLine("LifeRecall 上下文");
-                foreach (var line in contexts) detail.AppendLine("• " + Convert.ToString(line));
-            }
             if (!string.IsNullOrWhiteSpace(RecallValue(item, "lyricExcerpt")))
             {
                 detail.AppendLine();
@@ -1214,6 +1186,7 @@ namespace NeteaseToolbox
             portraitTabs.TabPages.Add(allTab);
             portraitTabs.TabPages.Add(recentTab);
             portraitTabs.TabPages.Add(detailsTab);
+            portraitTabs.TabPages.Add(BuildLocalPlaybackTab());
             var profileLayout = new TableLayoutPanel { Name = "ProfileLayout", Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
             profileLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             profileLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
@@ -1607,6 +1580,10 @@ namespace NeteaseToolbox
                     var values = fields.Skip(1).Take(3).Select(DecodeWorkerText).ToArray();
                     if (!IsDisposed && IsHandleCreated) Invoke((Action)(() => ApplyLibraryTrack(values)));
                 }
+                else if (fields[0] == "PLAYLIST_META" && fields.Length >= 2)
+                    CaptureTagPlaylistMeta(DecodeWorkerText(fields[1]));
+                else if (fields[0] == "PLAYLIST_SONG" && fields.Length >= 2)
+                    CaptureTagPlaylistSong(DecodeWorkerText(fields[1]));
                 else if (fields[0] == "ERROR" && fields.Length >= 3)
                     WriteLog("分析失败：" + DecodeWorkerText(fields[1]) + " · " + DecodeWorkerText(fields[2]));
                 else if (fields[0] == "FATAL" && fields.Length >= 2)
@@ -1719,12 +1696,13 @@ namespace NeteaseToolbox
 
         private async Task AnalyzeGenres()
         {
-            if (analyzingGenres || converting || loadingGenreResults) return;
+            if (analyzingGenres || buildingTagPlaylist || converting || loadingGenreResults) return;
             var files = GenreAudioPaths();
             if (files.Length == 0) { ReportTask("曲风刷新", "失败", "当前没有可分析的歌曲。"); return; }
             analyzingGenres = true;
             analyzeGenresButton.Enabled = false;
             exportGenresButton.Enabled = false;
+            tagPlaylistButton.Enabled = false;
             analyzeGenresButton.Text = "正在分析…";
             ReportTask("曲风刷新", "开始", "正在分析 " + files.Length + " 首歌曲。");
             WriteLog("开始从网易云歌曲百科读取 " + files.Length + " 首歌曲的曲风与情绪标签。");
@@ -1743,6 +1721,7 @@ namespace NeteaseToolbox
                 analyzeGenresButton.Text = "分析曲风";
                 analyzeGenresButton.Enabled = genreSongs.Items.Count > 0;
                 exportGenresButton.Enabled = genreSongs.Items.Count > 0;
+                tagPlaylistButton.Enabled = File.Exists(genreScriptPath) && !buildingTagPlaylist;
             }
         }
 
@@ -2676,6 +2655,11 @@ namespace NeteaseToolbox
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            StopDailySignin();
+            audioUiTimer.Dispose();
+            audioForwarder.Dispose();
+            multiListenTimer.Dispose();
+            StopLocalPlayback();
             if (playbackRecorder != null) playbackRecorder.Dispose();
             if (trayIcon != null) { trayIcon.Visible = false; trayIcon.Dispose(); }
             if (watcher != null) watcher.Dispose();

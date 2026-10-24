@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -14,12 +14,14 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from compatibility import inspect_client
 parser = argparse.ArgumentParser(description="三行歌词启动器")
 parser.add_argument("--app-dir", type=Path, default=HERE.parent, help="网易云音乐安装目录")
+parser.add_argument("--check-only", action="store_true", help="只读兼容性检测，不启动或注入客户端")
 ARGS = parser.parse_args()
 APP = ARGS.app_dir.resolve() / "cloudmusic.exe"
 DLL = ARGS.app_dir.resolve() / "cloudmusic.dll"
-EXPECTED_DLL_SHA256 = "7f667f876caf94bc3dac3b0070d3e495117005fafdcf18b6aaa51eb004edac8c"
 sys.path.insert(0, str(HERE / "vendor"))
 
 import frida  # noqa: E402
@@ -59,12 +61,21 @@ def main() -> int:
     if not APP.is_file() or not DLL.is_file():
         print("未找到网易云音乐程序。请在工具箱设置中选择包含 cloudmusic.exe 和 cloudmusic.dll 的安装目录。")
         return 1
-    with DLL.open("rb") as dll_file:
-        actual_hash = hashlib.file_digest(dll_file, "sha256").hexdigest()
-    if actual_hash != EXPECTED_DLL_SHA256:
-        print("网易云版本已变化。补丁只适用于 3.1.41 x64 Build 205529。")
-        print("请先更新补丁；原版网易云音乐可正常启动。")
+    print("正在检测三行歌词兼容性…", flush=True)
+    try:
+        profile, report = inspect_client(DLL, HERE / "compatibility_profiles.json")
+        report_path = HERE / "compatibility-report.json"
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    except (OSError, ValueError, KeyError) as error:
+        print("版本已变化：兼容性检测失败：" + str(error), flush=True)
         return 2
+    if profile is None:
+        print("版本已变化：" + report["reason"], flush=True)
+        print("兼容性报告：" + str(report_path), flush=True)
+        return 2
+    print("兼容性检测通过：" + profile["id"], flush=True)
+    if ARGS.check_only:
+        return 0
 
     proc = main_process()
     if proc is None:
@@ -81,6 +92,7 @@ def main() -> int:
         return 3
 
     source = (HERE / "triline_agent.js").read_text(encoding="utf-8")
+    source = "const LYRIC_PROFILE = " + json.dumps(profile) + ";\n" + source
     session = None
     for attempt in range(40):
         try:

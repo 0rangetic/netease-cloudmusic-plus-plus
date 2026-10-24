@@ -1,8 +1,7 @@
-"""Local, image-free search across playback history and LifeRecall context events.
+"""Local search across playback history with local lyric matching.
 
-Context sources are registered by event kind. Photo events intentionally have no
-registered provider; adding a future provider must return textual evidence only
-and must not change playback search or ranking contracts.
+Results are limited to playback records and evidence from song metadata and
+local .lrc files. External timeline, photo and location data are not read.
 """
 
 import base64
@@ -16,7 +15,6 @@ import sys
 import unicodedata
 
 
-DEFAULT_LIFE_RECALL = pathlib.Path.home() / "Documents" / "LifeRecall"
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from netease_auth import account_folder
 DEFAULT_PLAYBACK = account_folder("Playback") / "play-history.csv"
@@ -76,67 +74,6 @@ def load_playback(path):
         warnings.append("播放记录读取失败：{}".format(type(exc).__name__))
     rows.sort(key=lambda item: item["playedMs"], reverse=True)
     return rows, warnings
-
-
-def _location_event(row):
-    when = parse_ms(row.get("capturedAt"))
-    lat, lon = row.get("latitude"), row.get("longitude")
-    if not when or lat is None or lon is None:
-        return None
-    try:
-        lat, lon = float(lat), float(lon)
-    except (TypeError, ValueError):
-        return None
-    return {"kind": "location", "at": when, "latitude": lat, "longitude": lon,
-            "accuracy": parse_int(row.get("accuracyMeters")), "source": str(row.get("source") or "")}
-
-
-def _movement_event(row):
-    start = parse_ms(row.get("from"))
-    end = parse_ms(row.get("to"))
-    if not start or not end:
-        return None
-    sessions = row.get("exerciseSessions")
-    session_count = len(sessions) if isinstance(sessions, list) else 0
-    return {"kind": "movement", "start": start, "end": end,
-            "steps": parse_int(row.get("steps")), "distanceMeters": parse_int(row.get("distanceMeters")),
-            "sessionCount": session_count, "source": str(row.get("source") or "")}
-
-
-# Providers return normalized context records. Photo has deliberately not been
-# registered; its JSON metadata and image file are ignored by this version.
-CONTEXT_EVENT_PROVIDERS = {
-    "location": _location_event,
-    "movement": _movement_event,
-}
-
-
-def load_life_context(path):
-    path = pathlib.Path(path)
-    context, kind_counts, warnings = [], {}, []
-    events_dir = path / "Events"
-    if not events_dir.is_dir():
-        return context, kind_counts, ["LifeRecall 目录中没有 Events 子目录：{}".format(events_dir)]
-    try:
-        for file_path in events_dir.glob("*.json"):
-            try:
-                row = json.loads(file_path.read_text(encoding="utf-8-sig"))
-            except (OSError, UnicodeError, ValueError):
-                warnings.append("有事件记录无法读取：{}".format(file_path.name))
-                continue
-            if not isinstance(row, dict):
-                continue
-            kind = str(row.get("kind") or "unknown")
-            kind_counts[kind] = kind_counts.get(kind, 0) + 1
-            provider = CONTEXT_EVENT_PROVIDERS.get(kind)
-            if provider is None:
-                continue
-            event = provider(row)
-            if event:
-                context.append(event)
-    except OSError as exc:
-        warnings.append("LifeRecall 事件读取失败：{}".format(type(exc).__name__))
-    return context, kind_counts, warnings
 
 
 class LocalLyricProvider:
@@ -374,31 +311,6 @@ def _time_matches(played_at, parsed):
     return True
 
 
-def _contexts_for(play, context):
-    when = play["playedAt"]
-    related = []
-    for event in context:
-        if event["kind"] == "movement":
-            if event["start"].date() == when.date():
-                pieces = []
-                if event["steps"] is not None:
-                    pieces.append("{} 步".format(event["steps"]))
-                if event["distanceMeters"] is not None:
-                    pieces.append("{:.1f} 公里".format(event["distanceMeters"] / 1000.0))
-                if event["sessionCount"]:
-                    pieces.append("{} 条运动记录".format(event["sessionCount"]))
-                detail = "、".join(pieces) if pieces else "有运动汇总"
-                related.append({"kind": "movement", "text": "当天运动汇总：{}（按全天统计，不代表播放时正在运动）".format(detail), "distanceMs": 0})
-        elif event["kind"] == "location":
-            delta = abs((event["at"] - when).total_seconds())
-            if delta <= 60 * 60:
-                accuracy = "精度约 {} 米".format(event["accuracy"]) if event["accuracy"] else "精度未知"
-                related.append({"kind": "location", "text": "附近位置记录：{:.2f}, {:.2f}（{}；相差 {} 分钟）".format(
-                    event["latitude"], event["longitude"], accuracy, int(delta // 60)), "distanceMs": int(delta * 1000)})
-    related.sort(key=lambda item: item["distanceMs"])
-    return related[:4]
-
-
 def _find_lyric_hit(lines, terms):
     normalized_terms = sorted((norm(term) for term in terms if len(norm(term)) >= 3), key=len, reverse=True)
     for term in normalized_terms:
@@ -415,11 +327,8 @@ def _base_lyric_excerpt(lines):
 
 def search(request):
     playback_path = request.get("playbackPath") or str(DEFAULT_PLAYBACK)
-    life_path = request.get("lifeRecallPath") or str(DEFAULT_LIFE_RECALL)
     music_root = request.get("musicRoot") or str(DEFAULT_MUSIC_ROOT)
     plays, warnings = load_playback(playback_path)
-    contexts, life_kinds, life_warnings = load_life_context(life_path)
-    warnings.extend(life_warnings)
     roots = request.get("musicRoots") if "musicRoots" in request else [music_root]
     providers = [LocalLyricProvider(root) for root in roots if root and pathlib.Path(root).is_dir()]
     if not providers:
@@ -433,10 +342,6 @@ def search(request):
     parsed = parse_query_time(request.get("query", ""), plays, request.get("startDate"), request.get("endDate"))
     terms = _text_terms(parsed["text"])
     query_norm = norm(parsed["text"])
-    activity_words = ("运动", "步行", "走路", "散步", "跑步", "锻炼", "骑车", "步数")
-    mentions_activity = any(word in norm(request.get("query", "")) for word in activity_words)
-    location_words = ("位置", "地点", "哪里", "在哪", "附近", "坐标", "定位", "地方")
-    mentions_location = any(word in norm(request.get("query", "")) for word in location_words)
     results = []
     for play in plays:
         time_hit = _time_matches(play["playedAt"], parsed)
@@ -478,21 +383,8 @@ def search(request):
             matches.append("播放时间符合日期/时段线索")
             score += 45 if parsed["hasDate"] else 25
 
-        related = _contexts_for(play, contexts)
-        movement_context = next((item for item in related if item["kind"] == "movement"), None)
-        location_context = next((item for item in related if item["kind"] == "location"), None)
-        if mentions_activity and movement_context:
-            matches.append("当天有 LifeRecall 运动汇总")
-            score += 18
-        if mentions_location and location_context:
-            matches.append("播放前后约一小时内有位置记录")
-            score += 18
-
         textual_hit = any(item.startswith(("歌曲名", "艺人名", "专辑名", "歌词", "歌曲信息", "设备记录")) for item in matches)
-        context_only_query = (mentions_activity and movement_context is not None) or (mentions_location and location_context is not None)
-        if not parsed["hasTemporal"] and not textual_hit and not context_only_query:
-            continue
-        if not parsed["hasTemporal"] and query_norm and not textual_hit and not context_only_query:
+        if not parsed["hasTemporal"] and not textual_hit:
             continue
 
         evidence = list(matches)
@@ -504,7 +396,7 @@ def search(request):
             "playedText": play["playedAt"].strftime("%Y-%m-%d %H:%M:%S"), "title": play["title"],
             "artist": play["artist"], "album": play["album"], "deviceSystem": play["deviceSystem"],
             "deviceName": play["deviceName"], "score": score, "evidence": evidence,
-            "contexts": [item["text"] for item in related], "lyricExcerpt": lyric_hit or _base_lyric_excerpt(play["lyricLines"]),
+            "lyricExcerpt": lyric_hit or _base_lyric_excerpt(play["lyricLines"]),
         })
 
     results.sort(key=lambda item: (item["score"], item["playedAt"]), reverse=True)
@@ -514,13 +406,9 @@ def search(request):
         "playCount": len(plays),
         "playFrom": min(play_dates).strftime("%Y-%m-%d") if play_dates else "",
         "playTo": max(play_dates).strftime("%Y-%m-%d") if play_dates else "",
-        "lifeKinds": life_kinds,
-        "lifeContextCount": len(contexts),
         "lyricFileCount": len({str(path) for provider in providers for path, _ in provider.files}),
         "lyricsMatchedSongs": sum(1 for row in plays if row["lyrics"]),
     }
-    if life_kinds.get("photo"):
-        summary["photoEventsSkipped"] = life_kinds["photo"]
     return {"summary": summary, "warnings": warnings, "results": results,
             "queryText": parsed["text"], "temporalFilter": parsed["hasTemporal"]}
 

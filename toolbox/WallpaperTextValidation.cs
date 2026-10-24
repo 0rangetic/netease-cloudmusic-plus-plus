@@ -75,10 +75,8 @@ internal static class WallpaperTextValidation
                 }
                 Call(form, "ResetCustomAppearance");
                 var query = (RichTextBox)Find(form, "MemoryRecallQuery");
-                var path = (RichTextBox)Find(form, "MemoryRecallLifeRecallPath");
                 var evidence = (RichTextBox)Find(form, "MemoryRecallEvidence");
                 query.Text = "记得的歌曲\n夜晚听过的旋律";
-                path.Text = "C:\\Example\\LifeRecall";
                 evidence.Text = "检索结果\n歌曲、歌词命中与时间线证据";
                 query.Select(0, 5);
                 Check(query.SelectedText == "记得的歌曲", "Native text selection preserved");
@@ -104,7 +102,6 @@ internal static class WallpaperTextValidation
                     Call(form, "SetTheme", light);
                     query.Select(0, 0);
                     CheckTextBackground(form, query);
-                    CheckTextBackground(form, path);
                     CheckTextBackground(form, evidence);
                     Snapshot(form, args.Length > 1 ? args[1] : null, light ? "memory-transparent-light" : "memory-transparent-dark");
                     Call(form, "NavigateTo", 4);
@@ -163,10 +160,9 @@ internal static class WallpaperTextValidation
                 // clipboard. Copy/paste remains RichEdit's built-in behavior.
                 Check(query.SelectedText == "记得的歌曲", "Native selected text remains available after editing and appearance changes");
                 // Read-only controls must not accept character messages.
-                string originalPath = path.Text, originalEvidence = evidence.Text;
-                SendMessage(path.Handle, 0x102, new IntPtr('X'), IntPtr.Zero);
+                string originalEvidence = evidence.Text;
                 SendMessage(evidence.Handle, 0x102, new IntPtr('X'), IntPtr.Zero);
-                Check(path.Text == originalPath && evidence.Text == originalEvidence, "Path and evidence remain read-only");
+                Check(evidence.Text == originalEvidence, "Evidence remains read-only");
                 var queryHandle = query.Handle;
                 var evidenceHandle = evidence.Handle;
                 form.Close();

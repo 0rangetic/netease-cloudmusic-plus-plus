@@ -19,9 +19,7 @@ class PortraitAiTests(unittest.TestCase):
     def test_config_scopes_and_no_plaintext_secret(self):
         with tempfile.TemporaryDirectory() as temp:
             config_path = Path(temp) / "config.json"
-            with patch.object(portrait_ai, "CONFIG_PATH", config_path), patch.object(
-                portrait_ai, "TODO_CONFIG", Path(temp) / "missing.json"
-            ):
+            with patch.object(portrait_ai, "CONFIG_PATH", config_path):
                 portrait_ai.save({"url": portrait_ai.DEFAULT_URL, "model": "test-model",
                                   "key": "local-test-key", "enabled": True,
                                   "prompts": {"all": "长期", "recent": "近期"}})
@@ -30,6 +28,17 @@ class PortraitAiTests(unittest.TestCase):
                 self.assertEqual(saved["prompts"], {"all": "长期", "recent": "近期"})
                 self.assertTrue(saved["enabled"])
                 self.assertEqual(portrait_ai._crypt(base64.b64decode(saved["secret"]), decrypt=True), b"local-test-key")
+
+    def test_fresh_config_does_not_read_other_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config_path = Path(temp) / "config.json"
+            with patch.object(portrait_ai, "CONFIG_PATH", config_path), patch.object(
+                Path, "exists", lambda path: path != config_path
+            ), patch.object(Path, "read_text", side_effect=AssertionError("Unexpected external config read")):
+                value = portrait_ai.config()
+                self.assertEqual(value["secret"], "")
+                self.assertEqual(value["url"], portrait_ai.DEFAULT_URL)
+            self.assertTrue(config_path.is_file())
 
     def test_existing_config_defaults_to_enabled(self):
         with tempfile.TemporaryDirectory() as temp:

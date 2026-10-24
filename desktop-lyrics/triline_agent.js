@@ -1,8 +1,18 @@
 'use strict';
-// Build 205529 only. Reads the lyric parsers already owned by NetEase.
+// Addresses are supplied only after verified client fingerprint selection.
 // The native GDI+ outline renderer receives a two-line secondary text block.
 const image = Process.getModuleByName('cloudmusic.dll');
-const vectorOf = new NativeFunction(image.base.add(0x11301d0), 'pointer', ['pointer']);
+if (Process.arch !== 'x64' || typeof LYRIC_PROFILE === 'undefined') throw new Error('缺少有效的 x64 适配配置');
+const offsets = LYRIC_PROFILE.addresses;
+for (const [name, signature] of Object.entries(LYRIC_PROFILE.signatures)) {
+  const address = image.base.add(offsets[name]);
+  const range = Process.findRangeByAddress(address);
+  if (!range || !range.protection.includes('x')) throw new Error('函数不可执行：' + name);
+  const bytes = new Uint8Array(address.readByteArray(signature.length / 2));
+  const actual = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  if (actual !== signature) throw new Error('内存函数指纹不匹配：' + name);
+}
+const vectorOf = new NativeFunction(image.base.add(offsets.vectorOf), 'pointer', ['pointer']);
 let pair = null, errors = 0, fontRatio = 1, announced = false;
 const user32=Process.getModuleByName('user32.dll');
 const findWindow=new NativeFunction(user32.getExportByName('FindWindowW'),'pointer',['pointer','pointer']);
@@ -46,12 +56,12 @@ setInterval(enlargeDesktopWindow,3000);
 function inLyricRenderer(context) {
   return Thread.backtrace(context,Backtracer.ACCURATE).some(p=>{
     const r=p.sub(image.base).toInt32();
-    return r>=0x1122ce0&&r<0x11231cf;
+    return r>=offsets.rendererStart&&r<offsets.rendererEnd;
   });
 }
 // The client scales both fonts when the native lyric window grows. Change the
 // font creation input and path outline size while keeping the larger canvas.
-Interceptor.attach(image.base.add(0x110ac3b),{onEnter(){
+Interceptor.attach(image.base.add(offsets.fontHook),{onEnter(){
   if(fontRatio>=0.99||!inLyricRenderer(this.context))return;
   const spot=this.context.rsp.add(0x18),size=spot.readFloat();
   if(size>10&&size<400){
@@ -108,7 +118,7 @@ function alignTrackForFrame(track,original,restore) {
     change.entry.add(4).writeS32(duration);
   }
 }
-Interceptor.attach(image.base.add(0x111a5c0), {
+Interceptor.attach(image.base.add(offsets.selectLine), {
   onEnter(args) {
     this.restoreTimes=[];
     try {
@@ -122,9 +132,6 @@ Interceptor.attach(image.base.add(0x111a5c0), {
       const translationLines=linesIn(vectorOf(list.readPointer()));
       const romanizationLines=linesIn(vectorOf(list.add(8).readPointer()));
       if(!originalLines||!secondaryLines||!translationLines||!romanizationLines){pair=null;return;}
-      // 111a5c0 selects from producer+0x18 for the desktop secondary row.
-      // The parser vectors below are source data for pairing and must stay intact.
-      alignTrackForFrame(secondaryLines,originalLines,this.restoreTimes);
       // NetEase caches the secondary text after drawing it. If that track
       // advances before the Japanese track, rewriting it from the Japanese
       // playback position leaves an old two-line block on screen. Instead,
@@ -154,6 +161,10 @@ Interceptor.attach(image.base.add(0x111a5c0), {
         }
       }
       pair=replacements.size?{replacements}:null;
+      // The desktop vector can share its entries with the parser's romanization
+      // vector. Build text pairs before temporarily changing those timestamps;
+      // otherwise a shifted romanization line can lose its translation match.
+      alignTrackForFrame(secondaryLines,originalLines,this.restoreTimes);
     } catch(e) { pair=null;if(errors++<3)send({type:'error',message:String(e)}); }
   },
   onLeave() {

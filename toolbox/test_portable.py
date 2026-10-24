@@ -77,8 +77,7 @@ class PortableTests(unittest.TestCase):
             from datetime import datetime, timezone
             play = {"key":"1", "songId":"1", "title":"测试歌曲", "artist":"测试艺人", "album":"测试专辑",
                     "playedAt":datetime.now(timezone.utc), "playedMs":int(time.time()*1000), "deviceSystem":"Windows", "deviceName":"test", "durationMs":1000}
-            with patch.object(memory_recall, "load_playback", return_value=([play], [])), patch.object(
-                    memory_recall, "load_life_context", return_value=([], {}, [])):
+            with patch.object(memory_recall, "load_playback", return_value=([play], [])):
                 result = memory_recall.search({"query":"森林深处", "musicRoots":[str(one),str(two)], "limit":40})
                 self.assertEqual(len(result["results"]), 1)
                 (one / "测试艺人 - 测试歌曲.lrc").write_text("[00:01.00]其他歌词", encoding="utf-8")
