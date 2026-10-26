@@ -1,6 +1,6 @@
 # 网易云工具箱
 
-当前公开源码版本：**2.3.1.0**。便携包的实际版本以下载标签为准。
+当前公开源码版本：**2.3.2.0**。便携包的实际版本以下载标签为准。
 
 ## 手机网易云重播同步（2.2.0）
 
@@ -169,7 +169,7 @@ Windows EXE 前端，集中管理 NCM 转换、播放记录、音乐记忆检索
 表格使用完整可见画面缓存：背景、全部可见行文字及选择效果先画到同一张位图，再一次性显示；未变化的画面复用缓存，只有可见区域参与绘制。曲风分析由独立控件管理行位置、选择和绘制；其余表格继续使用原生 ListView 管理数据、滚动位置和交互，缓存复用前核对首行、行位置和表头偏移，并将局部刷新扩展到整个表格。窗口尺寸变化的背景生成请求合并到布局结束后。
 ## 构建
 
-运行 `build.ps1`，使用 Windows 自带的 .NET Framework C# 编译器生成 EXE。安全去重的计划、隔离和界面源码分别位于 `DedupeModels.cs`、`DedupePlanner.cs`、`DedupeQuarantine.cs` 和 `DedupeUi.cs`；构建脚本已显式包含这些文件。回归测试运行 `validate-dedupe.ps1`。官方网页登录依赖 Microsoft WebView2：构建缺少 SDK 时运行 `prepare-webview2.ps1`，从微软 NuGet 下载固定版本 1.0.4258.31 并验证 SHA-256。音频转麦克风依赖 NAudio 2.2.1：缺少时运行 `prepare-naudio.ps1` 下载并校验 SHA-256。部署时同时携带 `Microsoft.Web.WebView2.Core.dll`、`Microsoft.Web.WebView2.WinForms.dll`、`WebView2Loader.dll`、`NAudio.Core.dll`、`NAudio.Wasapi.dll` 和 `NAudio-LICENSE.txt`；使用电脑需安装 Evergreen WebView2 Runtime。SDK DLL 和编译产物不提交到 GitHub。部署时将 `网易云工具箱.exe`、`netease_auth.py`、`vendor` 目录、`genre_analysis.py`、`profile_fetch.py`、`profile_first_listen.js`、`profile_analysis.py`、`portrait_ai.py`、`memory_recall.py`、`chart-report-project.txt` 和工作区根目录的 `convert.ps1` 放在同一目录。三行歌词运行文件仍位于 `程序目录的 Lyric3/`。多人一起听还要求工具箱目录下的 `multi-listen` 子目录；源码在仓库 `listen-together/`，修改后必须同时更新两处。
+运行 `build.ps1`，使用 Windows 自带的 .NET Framework C# 编译器生成 EXE。构建资源 `app.ico` 随源码提供，脚本会同时写入 EXE 文件图标、主窗口和托盘图标。安全去重的计划、隔离和界面源码分别位于 `DedupeModels.cs`、`DedupePlanner.cs`、`DedupeQuarantine.cs` 和 `DedupeUi.cs`；构建脚本已显式包含这些文件。回归测试运行 `validate-dedupe.ps1`。官方网页登录依赖 Microsoft WebView2：构建缺少 SDK 时运行 `prepare-webview2.ps1`，从微软 NuGet 下载固定版本 1.0.4258.31 并验证 SHA-256。音频转麦克风依赖 NAudio 2.2.1：缺少时运行 `prepare-naudio.ps1` 下载并校验 SHA-256。部署时同时携带 `Microsoft.Web.WebView2.Core.dll`、`Microsoft.Web.WebView2.WinForms.dll`、`WebView2Loader.dll`、`NAudio.Core.dll`、`NAudio.Wasapi.dll` 和 `NAudio-LICENSE.txt`；使用电脑需安装 Evergreen WebView2 Runtime。SDK DLL 和编译产物不提交到 GitHub。部署时将 `网易云工具箱.exe`、`netease_auth.py`、`vendor` 目录、`genre_analysis.py`、`profile_fetch.py`、`profile_first_listen.js`、`profile_analysis.py`、`portrait_ai.py`、`memory_recall.py`、`chart-report-project.txt` 和工作区根目录的 `convert.ps1` 放在同一目录。三行歌词运行文件位于程序目录的 `Lyric3/`。多人一起听还要求工具箱目录下的 `multi-listen` 子目录；源码在仓库 `listen-together/`，修改后必须同时更新两处。
 
 AI 画像仅在手动刷新对应画像时调用用户配置的 OpenAI 兼容接口，解读显示在浏览器图表报告，不改变 EXE 内规则统计。请在“设置与维护 → AI 画像接口与提示词”配置接口、模型和密钥。密钥使用当前 Windows 用户的 DPAPI 加密，保存在 `%LOCALAPPDATA%\NeteaseToolbox\Profile\portrait-ai.json`；报告只保存生成的解读和状态，不包含密钥。
 同一设置页的“启用 AI 分析”总开关同时控制所有歌曲与近30天画像。关闭后两种画像仍更新规则统计及图表，但不会向 AI 接口发送请求；报告会明确显示已停用。保存开关时会同步重建两份本地图表报告，不会调用 AI。

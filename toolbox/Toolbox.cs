@@ -19,10 +19,10 @@ using System.Web.Script.Serialization;
 [assembly: AssemblyTitle("网易云工具箱")]
 [assembly: AssemblyDescription("网易云账号播放记录、音乐记忆检索、转换、曲风分析、听歌画像、多人一起听、桌面歌词与音频转麦克风工具箱")]
 [assembly: AssemblyProduct("网易云工具箱")]
-[assembly: AssemblyCompany("橘子味的橙子")]
-[assembly: AssemblyVersion("2.3.1.0")]
-[assembly: AssemblyFileVersion("2.3.1.0")]
-[assembly: AssemblyInformationalVersion("2.3.1.0")]
+[assembly: AssemblyCompany("")]
+[assembly: AssemblyVersion("2.3.2.0")]
+[assembly: AssemblyFileVersion("2.3.2.0")]
+[assembly: AssemblyInformationalVersion("2.3.2.0")]
 
 namespace NeteaseToolbox
 {
@@ -223,6 +223,20 @@ namespace NeteaseToolbox
         private bool loadingPortrait;
         private bool searchingMemory;
         private bool scanQueued;
+        private static readonly Icon AppIcon = LoadAppIcon();
+
+        private static Icon LoadAppIcon()
+        {
+            try
+            {
+                using (var stream = typeof(ToolboxForm).Assembly.GetManifestResourceStream("NeteaseToolbox.AppIcon.ico"))
+                {
+                    if (stream != null) return new Icon(stream);
+                }
+            }
+            catch { }
+            return SystemIcons.Application;
+        }
 
         public ToolboxForm(bool startInBackground)
         {
@@ -236,7 +250,7 @@ namespace NeteaseToolbox
             BackColor = background;
             ForeColor = ink;
             Font = UiFont(9F);
-            Icon = SystemIcons.Application;
+            Icon = AppIcon;
             try
             {
                 if (File.Exists(outputSettingPath))
@@ -2905,7 +2919,7 @@ namespace NeteaseToolbox
             menu.Items.Add("关闭自动捕获并退出", null, delegate { ExitToolbox(true); });
             trayIcon = new NotifyIcon {
                 Text = "网易云播放记录自动捕获",
-                Icon = SystemIcons.Application,
+                Icon = AppIcon,
                 ContextMenuStrip = menu,
                 Visible = true
             };

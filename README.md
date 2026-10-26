@@ -1,6 +1,6 @@
 # 网易云++ / 网易云工具箱
 
-面向 Windows 10/11 x64、.NET Framework 4.8 的本地音乐工具，当前公开源码同步至 **2.3.1.0**。
+面向 Windows 10/11 x64、.NET Framework 4.8 的本地音乐工具，当前公开源码同步至 **2.3.2.0**。
 
 - NCM 转换、标签、封面与歌词提取，以及带预览和回收站的安全去重。
 - 网易云扫码登录、曲风与情绪标签、标签歌单预览与规则预设。
@@ -13,7 +13,7 @@
 
 运行环境及操作说明见 [工具箱说明](toolbox/README.md) 和 [便携使用说明](toolbox/portable-README.txt)，多人补丁说明见 [listen-together](listen-together/README.md)。客户端更新后需要重新适配，不能复用未知版本的函数偏移。
 
-在 Windows PowerShell 中执行 `toolbox/build.ps1` 构建。脚本会按需从官方 NuGet 下载并校验 WebView2 与 NAudio SDK。准备所需运行时和 FFmpeg 后，可执行 `toolbox/build-portable.ps1` 按允许列表生成便携包。源码仓库不包含这些二进制依赖或网易云客户端。本次同步更新源码并发布 2.3.1 完整便携包，见 Releases。
+在 Windows PowerShell 中执行 `toolbox/build.ps1` 构建。脚本会按需从官方 NuGet 下载并校验 WebView2 与 NAudio SDK。准备所需运行时和 FFmpeg 后，可执行 `toolbox/build-portable.ps1` 按允许列表生成便携包。源码仓库不包含这些二进制依赖或网易云客户端。本次同步更新源码并发布 2.3.2 完整便携包，见 Releases。
 
 ## 隐私与文件操作
 
