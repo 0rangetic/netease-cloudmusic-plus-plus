@@ -30,10 +30,11 @@ namespace NeteaseToolbox
         {
             var page = new TabPage("本机播放统计") { BackColor = panel };
             var surface = new WallpaperPanel { Dock = DockStyle.Fill, BackColor = panel };
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.Transparent };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, BackColor = Color.Transparent };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(3), BackColor = Color.Transparent };
@@ -47,6 +48,10 @@ namespace NeteaseToolbox
                 try { Directory.CreateDirectory(localPlaybackRoot); Process.Start(new ProcessStartInfo(localPlaybackRoot) { UseShellExecute = true }); }
                 catch (Exception ex) { ReportTask("本机播放统计", "失败", ex.Message); }
             };
+            var phoneSync = new Button { Name = "LocalPlaybackPhoneSync", Text = "手机同步", Width = 105, Height = 32 };
+            StyleButton(phoneSync, ButtonRole.Secondary); buttons.Controls.Add(phoneSync);
+            phoneSync.Click += delegate { ShowPhoneSyncDialog(); };
+            tips.SetToolTip(phoneSync, "与手机配对后，自动接收网易云重播并并入本页“连续重播记录”。");
             localPlaybackCollect.Click += async delegate { await UpdateLocalPlayback(true); };
             localPlaybackAccounts.SelectedIndexChanged += async delegate { if (!localPlaybackSelecting) await UpdateLocalPlayback(false); };
             localPlaybackStatus.Text = "打开工具箱时采集一次，运行期间每 3 小时采集；退出后停止。";
@@ -56,8 +61,8 @@ namespace NeteaseToolbox
             var views = new TabControl { Dock = DockStyle.Fill };
             var totals = new TabPage("累计播放次数") { BackColor = panel };
             var sessions = new TabPage("连续重播记录") { BackColor = panel };
-            ConfigureLocalPlaybackList(localPlaybackSongs, new[] { "歌曲", "歌手", "播放次数", "首次记录", "最近记录", "歌曲 ID" }, new[] { 230, 170, 85, 150, 150, 100 });
-            ConfigureLocalPlaybackList(localPlaybackSessions, new[] { "歌曲", "歌手", "连续播放次数", "开始记录", "结束记录", "歌曲 ID" }, new[] { 230, 170, 100, 150, 150, 100 });
+            ConfigureLocalPlaybackList(localPlaybackSongs, new[] { "歌曲", "歌手", "播放次数", "其中手机", "首次记录", "最近记录", "歌曲 ID" }, new[] { 165, 105, 70, 65, 140, 140, 70 });
+            ConfigureLocalPlaybackList(localPlaybackSessions, new[] { "歌曲", "歌手", "来源", "连续次数", "开始记录", "结束记录", "歌曲 ID" }, new[] { 165, 105, 50, 70, 140, 140, 70 });
             totals.Controls.Add(localPlaybackSongs); sessions.Controls.Add(localPlaybackSessions);
             localPlaybackSessions.SelectedIndexChanged += delegate {
                 if (localPlaybackSessions.SelectedItems.Count > 0) localPlaybackEvidence.Text = Convert.ToString(localPlaybackSessions.SelectedItems[0].Tag);
@@ -69,7 +74,8 @@ namespace NeteaseToolbox
             ShowLocalPlaybackLimits();
             views.TabPages.Add(totals); views.TabPages.Add(sessions);
             layout.Controls.Add(buttons, 0, 0); layout.Controls.Add(localPlaybackStatus, 0, 1);
-            layout.Controls.Add(views, 0, 2); layout.Controls.Add(localPlaybackEvidence, 0, 3);
+            layout.Controls.Add(BuildTabBar(views, "LocalPlaybackTabBar"), 0, 2);
+            layout.Controls.Add(views, 0, 3); layout.Controls.Add(localPlaybackEvidence, 0, 4);
             surface.Controls.Add(layout); page.Controls.Add(surface);
             localPlaybackTimer.Interval = 3 * 60 * 60 * 1000;
             localPlaybackTimer.Tick += async delegate { await UpdateLocalPlayback(true); };
@@ -86,7 +92,9 @@ namespace NeteaseToolbox
 
         private void ShowLocalPlaybackLimits()
         {
-            localPlaybackEvidence.Text = "次数包含中途切歌和手动重播，仅统计客户端已写入并被采集到的本机播放记录；手机和其他设备不计入此处。\r\n"
+            localPlaybackEvidence.Text = "电脑次数来自本机客户端已写入并被采集到的记录；手机次数只统计网易云音乐重播，并按“重播次数 + 1”推算首遍后合并。\r\n"
+                + "电脑和手机不会同时播放，因此两边不互相去重；同一手机记录因网络失败重传时，电脑按事件 ID 幂等，避免重复计数。\r\n"
+                + "手机仅记录单曲循环和回拖重播，首次播放不单独记录；其他媒体的播放不会进入手机重播。手机数据需在“手机同步”配对后、同一网络时自动传入。\r\n"
                 + "连续重播按歌曲、记录顺序及时间间隔推断，不能确认是否开启单曲循环；长暂停会分段。未知账号单独保存。\r\n"
                 + "客户端已清理的旧记录无法补回，正在播放的记录可能尚未写入。关闭窗口到托盘仍会采集，退出工具箱后停止。选择连续重播记录可查看逐条证据。";
         }
@@ -197,23 +205,35 @@ namespace NeteaseToolbox
             try {
                 localPlaybackSongs.Items.Clear(); localPlaybackSessions.Items.Clear();
                 foreach (Dictionary<string, object> song in LocalArray(data, "songs")) localPlaybackSongs.Items.Add(new ListViewItem(new[] {
-                    RecallValue(song, "name"), RecallValue(song, "artists"), RecallValue(song, "count"), RecallValue(song, "first"), RecallValue(song, "last"), RecallValue(song, "song_id")
+                    RecallValue(song, "name"), RecallValue(song, "artists"), RecallValue(song, "count"), RecallValue(song, "phone_count"), RecallValue(song, "first"), RecallValue(song, "last"), RecallValue(song, "song_id")
                 }));
                 foreach (Dictionary<string, object> session in LocalArray(data, "sessions")) {
                     var evidence = new StringBuilder();
-                    evidence.AppendLine("连续播放 " + RecallValue(session, "count") + " 次（包含首遍）；不能确认自动循环或手动重播。");
+                    string source = RecallValue(session, "source");
+                    if (source == "phone") {
+                        evidence.AppendLine("手机网易云重播 " + RecallValue(session, "repeat_count") + " 次；按 +1 推算首遍，连续播放 " + RecallValue(session, "count") + " 次。");
+                        evidence.AppendLine("设备：" + RecallValue(session, "device") + "。首次播放未在手机端记录，+1 为推算值。");
+                    } else {
+                        evidence.AppendLine("连续播放 " + RecallValue(session, "count") + " 次（包含首遍）；不能确认自动循环或手动重播。");
+                    }
                     if (RecallValue(session, "estimated_span") == "True") evidence.AppendLine("部分歌曲缺少时长信息，分段使用 240 秒默认时长，结果需结合记录核对。");
                     var gaps = LocalArray(session, "gaps_sec"); var gapText = new List<string>(); foreach (var gap in gaps) gapText.Add(Convert.ToString(gap, CultureInfo.InvariantCulture));
                     evidence.AppendLine("相邻记录间隔（秒）：" + string.Join(", ", gapText.ToArray()));
                     foreach (Dictionary<string, object> entry in LocalArray(session, "evidence")) evidence.AppendLine("ID " + RecallValue(entry, "row_id") + "  " + RecallValue(entry, "time") + "  已听 " + RecallValue(entry, "seconds") + " 秒  来源 " + RecallValue(entry, "source"));
-                    var item = new ListViewItem(new[] { RecallValue(session, "name"), RecallValue(session, "artists"), RecallValue(session, "count"), RecallValue(session, "started_at"), RecallValue(session, "ended_at"), RecallValue(session, "song_id") });
+                    var item = new ListViewItem(new[] { RecallValue(session, "name"), RecallValue(session, "artists"), source == "phone" ? "手机" : "电脑", RecallValue(session, "count"), RecallValue(session, "started_at"), RecallValue(session, "ended_at"), RecallValue(session, "song_id") });
                     item.Tag = evidence.ToString(); localPlaybackSessions.Items.Add(item);
                 }
             } finally { localPlaybackSongs.EndUpdate(); localPlaybackSessions.EndUpdate(); }
             ShowLocalPlaybackLimits();
             string last = RecallValue(data, "last_collected_at");
-            localPlaybackStatus.Text = "已归档 " + RecallValue(data, "total") + " 条播放记录 · " + localPlaybackSongs.Items.Count + " 首歌 · " + localPlaybackSessions.Items.Count + " 段连续重播\r\n"
-                + (last.Length > 0 ? "所选账号最近采集：" + last + "（北京时间）；每 3 小时采集。" : "暂无记录；打开时及运行期间每 3 小时采集，退出后停止。");
+            string phoneSync = RecallValue(data, "last_phone_sync_at");
+            string phoneTotal = RecallValue(data, "phone_total");
+            string phoneSessions = RecallValue(data, "phone_sessions");
+            if (phoneTotal.Length == 0) phoneTotal = "0";
+            if (phoneSessions.Length == 0) phoneSessions = "0";
+            localPlaybackStatus.Text = "已归档 " + RecallValue(data, "total") + " 条电脑记录 · " + localPlaybackSongs.Items.Count + " 首歌 · " + localPlaybackSessions.Items.Count + " 段连续重播（手机 " + phoneSessions + " 段 / " + phoneTotal + " 条重播）\r\n"
+                + (last.Length > 0 ? "所选账号最近采集：" + last + "（北京时间）；每 3 小时采集。" : "暂无电脑记录；打开时及运行期间每 3 小时采集，退出后停止。")
+                + (phoneSync.Length > 0 ? " 手机上次同步：" + phoneSync + "。" : " 手机尚未同步。");
             tips.SetToolTip(localPlaybackStatus, localPlaybackStatus.Text);
         }
 

@@ -16,6 +16,7 @@ namespace NeteaseToolbox
         public int? ButtonColor { get; set; }
         public string FontFamily { get; set; }
         public int Blur { get; set; }
+        public int? MaskOpacity { get; set; }
         public bool HasWallpaper { get; set; }
         public string WallpaperFit { get; set; }
         public int WallpaperWidth { get; set; }
@@ -38,10 +39,13 @@ namespace NeteaseToolbox
         private Size wallpaperCanvasSize;
         private ThemePalette wallpaperCanvasTheme;
         private string wallpaperCanvasFit;
+        private int wallpaperCanvasMask;
         private int wallpaperCanvasGeneration;
         private bool wallpaperLayoutPending;
         internal bool WallpaperLayoutPending { get { return wallpaperLayoutPending; } }
         private TrackBar blurSlider;
+        private TrackBar maskSlider;
+        private int? savedMaskOpacity;
         private ComboBox wallpaperFitSelector;
         private static readonly string[] WallpaperFits = { "Fill", "Fit", "Stretch", "Tile", "Center" };
         private static readonly string[] WallpaperFitLabels = { "填充", "适应", "拉伸", "平铺", "居中" };
@@ -67,7 +71,7 @@ namespace NeteaseToolbox
         private Control BuildCustomAppearance()
         {
             var layout = new FlowLayoutPanel {
-                Name = "CustomAppearanceSettings", Location = new Point(28, 0), Size = new Size(720, 126),
+                Name = "CustomAppearanceSettings", Location = new Point(28, 0), Size = new Size(720, 100),
                 AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 FlowDirection = FlowDirection.TopDown, WrapContents = false,
                 BackColor = Color.Transparent
@@ -84,19 +88,17 @@ namespace NeteaseToolbox
             caption.Margin = new Padding(0, 9, 14, 0);
             blurRow.Controls.Add(caption);
             blurSlider = new TrackBar { Name = "BackgroundBlurSlider", Minimum = 0, Maximum = 30,
-                Value = 12, Width = 230, Height = 36, TickFrequency = 5, AutoSize = false };
+                Value = 12, Width = 230, Height = 30, TickFrequency = 5, AutoSize = false };
             tips.SetToolTip(blurSlider, "0 为清晰原图，30 为强模糊。松开鼠标或使用键盘调整后自动保存。");
             blurSlider.ValueChanged += delegate { if (!updatingAppearance) UpdateAppearanceSummary(); };
             blurSlider.MouseUp += delegate { CommitBlur(); };
             blurSlider.KeyUp += delegate { CommitBlur(); };
             blurRow.Controls.Add(blurSlider);
-            layout.Controls.Add(blurRow);
-            var fitRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent };
-            var fitCaption = Label("图片适应模式", 9, false, muted);
-            fitCaption.Margin = new Padding(0, 6, 14, 0);
-            fitRow.Controls.Add(fitCaption);
+            var fitCaption = Label("适应模式", 9, false, muted);
+            fitCaption.Margin = new Padding(22, 6, 10, 0);
+            blurRow.Controls.Add(fitCaption);
             wallpaperFitSelector = new ComboBox { Name = "WallpaperFitSelector", DropDownStyle = ComboBoxStyle.DropDownList,
-                Width = 156, BackColor = panel, ForeColor = ink };
+                Width = 140, BackColor = panel, ForeColor = ink, Margin = new Padding(0, 2, 0, 0) };
             wallpaperFitSelector.Items.AddRange(WallpaperFitLabels);
             wallpaperFitSelector.SelectedIndex = 0;
             tips.SetToolTip(wallpaperFitSelector, "填充：等比例铺满，可能裁剪；适应：完整显示，可能留边；拉伸：铺满但比例可能改变；平铺：按原始尺寸重复；居中：按原始尺寸居中。");
@@ -107,11 +109,28 @@ namespace NeteaseToolbox
                 Invalidate(true);
                 SaveCustomAppearance("背景适应模式已切换为“" + WallpaperFitLabels[wallpaperFitSelector.SelectedIndex] + "”。");
             };
-            fitRow.Controls.Add(wallpaperFitSelector);
-            layout.Controls.Add(fitRow);
+            blurRow.Controls.Add(wallpaperFitSelector);
+            layout.Controls.Add(blurRow);
+            var maskRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent };
+            var maskCaption = Label("背景蒙版", 9, false, muted);
+            maskCaption.Margin = new Padding(0, 9, 14, 0);
+            maskRow.Controls.Add(maskCaption);
+            maskSlider = new TrackBar { Name = "BackgroundMaskSlider", Minimum = 0, Maximum = 100,
+                Value = 82, Width = 230, Height = 30, TickFrequency = 10, AutoSize = false };
+            tips.SetToolTip(maskSlider, "0 为完全透出背景，100 为完全遮住背景；松开鼠标或使用键盘调整后自动保存。");
+            maskSlider.ValueChanged += delegate {
+                if (updatingAppearance) return;
+                appearance.MaskOpacity = maskSlider.Value;
+                RefreshWallpaperLists(this);
+                Invalidate(true);
+            };
+            maskSlider.MouseUp += delegate { CommitMask(); };
+            maskSlider.KeyUp += delegate { CommitMask(); };
+            maskRow.Controls.Add(maskSlider);
+            layout.Controls.Add(maskRow);
             appearanceSummary = Label("默认按钮颜色 · 无背景图片 · Microsoft YaHei UI", 9, false, muted);
             appearanceSummary.Name = "AppearanceSummary";
-            layout.Controls.Add(appearanceSummary);
+            appearanceSummary.Visible = false;
             layout.ParentChanged += delegate {
                 if (layout.Parent == null) return;
                 Action resize = () => {
@@ -152,25 +171,43 @@ namespace NeteaseToolbox
             appearanceSummary.Text = (appearance.ButtonColor.HasValue ? "按钮 " + ColorTranslator.ToHtml(Color.FromArgb(appearance.ButtonColor.Value)) : "默认按钮颜色")
                 + " · " + (appearance.HasWallpaper ? "自定义背景" : "无背景图片")
                 + " · " + WallpaperFitLabels[Array.IndexOf(WallpaperFits, NormalizeWallpaperFit(appearance.WallpaperFit))]
-                + " · 模糊 " + blurSlider.Value + " · " + appearance.FontFamily;
+                + " · 模糊 " + blurSlider.Value + " · 蒙版 " + MaskPercent() + " · " + appearance.FontFamily;
         }
 
         private void ApplyButtonAppearance(Button button, ButtonRole role, bool? selected = null)
         {
-            bool active = selected ?? (role == ButtonRole.Navigation && Convert.ToInt32(button.Tag) == selectedNavigationIndex);
-            bool tinted = appearance.ButtonColor.HasValue && (role == ButtonRole.Primary || role == ButtonRole.Secondary || (role == ButtonRole.Navigation && active));
+            TabControl tabOwner = null;
+            bool tabActive = role == ButtonRole.Tab && tabButtons.TryGetValue(button, out tabOwner)
+                && button.Tag != null && tabOwner.SelectedIndex == Convert.ToInt32(button.Tag);
+            bool active = selected ?? (role == ButtonRole.Navigation
+                ? Convert.ToInt32(button.Tag) == selectedNavigationIndex : tabActive);
+            bool tinted = appearance.ButtonColor.HasValue && (role == ButtonRole.Primary || role == ButtonRole.Secondary
+                || (role == ButtonRole.Navigation && active) || (role == ButtonRole.Tab && tabActive));
             Color surface = tinted ? Color.FromArgb(appearance.ButtonColor.Value)
                 : role == ButtonRole.Primary ? theme.Accent : role == ButtonRole.Danger ? theme.Danger
                 : role == ButtonRole.Navigation ? (active ? theme.Secondary : wallpaperBlurred == null ? theme.Panel : Color.Transparent)
+                : role == ButtonRole.Tab ? (tabActive ? theme.Accent : wallpaperBlurred == null ? theme.Panel : Color.Transparent)
                 : role == ButtonRole.Ghost ? theme.Background : theme.Secondary;
             button.BackColor = surface;
-            if (button != taskMessagesButton || button.ForeColor.ToArgb() != theme.Error.ToArgb())
-                button.ForeColor = tinted ? ContrastInk(surface)
+            if (button != taskMessagesButton || button.ForeColor.ToArgb() != theme.Error.ToArgb()) {
+                if (role == ButtonRole.Tab) {
+                    button.Font = UiFont(9F, tabActive ? FontStyle.Bold : FontStyle.Regular);
+                    button.ForeColor = tabActive ? (tinted ? ContrastInk(surface) : Color.White) : theme.Muted;
+                }
+                else button.ForeColor = tinted ? ContrastInk(surface)
                     : role == ButtonRole.Primary || role == ButtonRole.Danger ? Color.White
                     : role == ButtonRole.Navigation && !active ? theme.Muted : theme.ButtonInk;
-            button.FlatAppearance.BorderColor = tinted ? surface : theme.Border;
-            button.FlatAppearance.MouseOverBackColor = surface;
-            button.FlatAppearance.MouseDownBackColor = surface;
+            }
+            button.FlatAppearance.BorderColor = tinted ? surface
+                : role == ButtonRole.Tab ? (tabActive ? theme.Accent : theme.Border) : theme.Border;
+            button.FlatAppearance.MouseOverBackColor = surface.A == 0 ? theme.Secondary
+                : role == ButtonRole.Primary || role == ButtonRole.Danger || (role == ButtonRole.Tab && tabActive)
+                    ? UiDrawing.Blend(surface, Color.White, 0.12)
+                : UiDrawing.Blend(surface, theme.Ink, 0.08);
+            button.FlatAppearance.MouseDownBackColor = surface.A == 0 ? theme.Border
+                : role == ButtonRole.Primary || role == ButtonRole.Danger || (role == ButtonRole.Tab && tabActive)
+                    ? UiDrawing.Blend(surface, Color.Black, 0.12)
+                : UiDrawing.Blend(surface, theme.Ink, 0.16);
         }
 
         internal static Color ContrastInk(Color surface)
@@ -252,6 +289,7 @@ namespace NeteaseToolbox
                 if (File.Exists(customAppearancePath)) {
                     var saved = new JavaScriptSerializer().Deserialize<AppearancePreferences>(File.ReadAllText(customAppearancePath, Encoding.UTF8));
                     if (saved == null || saved.Blur < 0 || saved.Blur > 30) throw new InvalidDataException("外观配置无效。");
+                    if (saved.MaskOpacity.HasValue) saved.MaskOpacity = Math.Max(0, Math.Min(100, saved.MaskOpacity.Value));
                     using (var family = new FontFamily(saved.FontFamily ?? "Microsoft YaHei UI")) { saved.FontFamily = family.Name; }
                     if (!FontSupportsUi(saved.FontFamily)) throw new InvalidDataException("保存的字体缺少中文字符，请重新选择支持中文的字体。");
                     if (saved.ButtonColor.HasValue) saved.ButtonColor = Color.FromArgb(255, Color.FromArgb(saved.ButtonColor.Value)).ToArgb();
@@ -259,6 +297,8 @@ namespace NeteaseToolbox
                 }
                 updatingAppearance = true;
                 blurSlider.Value = appearance.Blur;
+                maskSlider.Value = MaskPercent();
+                savedMaskOpacity = appearance.MaskOpacity;
                 appearance.WallpaperFit = NormalizeWallpaperFit(appearance.WallpaperFit);
                 wallpaperFitSelector.SelectedIndex = Array.IndexOf(WallpaperFits, appearance.WallpaperFit);
                 updatingAppearance = false;
@@ -336,6 +376,25 @@ namespace NeteaseToolbox
             catch (Exception ex) { ReportTask("背景模糊", "失败", ex.Message); }
         }
 
+        private int MaskPercent()
+        {
+            int value = appearance.MaskOpacity.HasValue ? appearance.MaskOpacity.Value : 82;
+            return Math.Max(0, Math.Min(100, value));
+        }
+
+        private static int MaskAlpha(int percent)
+        {
+            return (int)Math.Round(255.0 * percent / 100.0);
+        }
+
+        private void CommitMask()
+        {
+            if (updatingAppearance || (savedMaskOpacity ?? 82) == maskSlider.Value) return;
+            appearance.MaskOpacity = maskSlider.Value;
+            savedMaskOpacity = maskSlider.Value;
+            SaveCustomAppearance("背景蒙版深浅已更新。");
+        }
+
         private void RebuildWallpaper()
         {
             Bitmap replacement = wallpaperSource == null ? null : BlurBitmap(wallpaperSource, appearance.Blur);
@@ -350,6 +409,8 @@ namespace NeteaseToolbox
         private void ApplyWallpaperSurfaces(Control root)
         {
             foreach (Control child in root.Controls) ApplyWallpaperSurfaces(child);
+            var tabPage = root as TabPage;
+            if (tabPage != null) { tabPage.BackColor = theme.Panel; return; }
             var table = root as CachedSongTable;
             if (table != null) { table.SetWallpaperOwner(this); return; }
             var list = root as WallpaperListView;
@@ -377,7 +438,9 @@ namespace NeteaseToolbox
         {
             if (wallpaperLayoutPending && wallpaperCanvas != null) return;
             string fit = NormalizeWallpaperFit(appearance.WallpaperFit);
-            if (wallpaperCanvas != null && wallpaperCanvasSize == ClientSize && wallpaperCanvasTheme == theme && wallpaperCanvasFit == fit) return;
+            int mask = MaskAlpha(MaskPercent());
+            if (wallpaperCanvas != null && wallpaperCanvasSize == ClientSize && wallpaperCanvasTheme == theme
+                && wallpaperCanvasFit == fit && wallpaperCanvasMask == mask) return;
             var replacement = new Bitmap(Math.Max(1, ClientSize.Width), Math.Max(1, ClientSize.Height), PixelFormat.Format32bppRgb);
             var imageSize = appearance.WallpaperWidth > 0 && appearance.WallpaperHeight > 0
                 && (long)appearance.WallpaperWidth * appearance.WallpaperHeight <= 40000000
@@ -385,13 +448,14 @@ namespace NeteaseToolbox
             using (var graphics = Graphics.FromImage(replacement)) {
                 graphics.Clear(theme.Background);
                 DrawWallpaper(graphics, wallpaperBlurred, imageSize, ClientRectangle, fit);
-                using (var wash = new SolidBrush(Color.FromArgb(theme == ThemePalette.Light ? 180 : 165, theme.Background))) graphics.FillRectangle(wash, ClientRectangle);
+                using (var wash = new SolidBrush(Color.FromArgb(mask, theme.Background))) graphics.FillRectangle(wash, ClientRectangle);
             }
             if (wallpaperCanvas != null) wallpaperCanvas.Dispose();
             wallpaperCanvas = replacement;
             wallpaperCanvasSize = ClientSize;
             wallpaperCanvasTheme = theme;
             wallpaperCanvasFit = fit;
+            wallpaperCanvasMask = mask;
             wallpaperCanvasGeneration++;
         }
 
@@ -508,6 +572,8 @@ namespace NeteaseToolbox
             appearance = new AppearancePreferences { FontFamily = "Microsoft YaHei UI", Blur = 12 };
             updatingAppearance = true;
             blurSlider.Value = 12;
+            maskSlider.Value = 82;
+            savedMaskOpacity = null;
             wallpaperFitSelector.SelectedIndex = 0;
             updatingAppearance = false;
             ClearWallpaper();
@@ -558,6 +624,10 @@ namespace NeteaseToolbox
 
         protected override void Dispose(bool disposing)
         {
+            if (disposing && sidebarWheelFilter != null) {
+                Application.RemoveMessageFilter(sidebarWheelFilter);
+                sidebarWheelFilter = null;
+            }
             if (disposing) {
                 var source = wallpaperSource; wallpaperSource = null;
                 var blurred = wallpaperBlurred; wallpaperBlurred = null;

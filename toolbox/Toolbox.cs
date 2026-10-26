@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -18,10 +19,10 @@ using System.Web.Script.Serialization;
 [assembly: AssemblyTitle("网易云工具箱")]
 [assembly: AssemblyDescription("网易云账号播放记录、音乐记忆检索、转换、曲风分析、听歌画像、多人一起听、桌面歌词与音频转麦克风工具箱")]
 [assembly: AssemblyProduct("网易云工具箱")]
-[assembly: AssemblyCompany("")]
-[assembly: AssemblyVersion("1.29.0.0")]
-[assembly: AssemblyFileVersion("1.29.0.0")]
-[assembly: AssemblyInformationalVersion("1.29.0.0")]
+[assembly: AssemblyCompany("橘子味的橙子")]
+[assembly: AssemblyVersion("2.3.1.0")]
+[assembly: AssemblyFileVersion("2.3.1.0")]
+[assembly: AssemblyInformationalVersion("2.3.1.0")]
 
 namespace NeteaseToolbox
 {
@@ -191,6 +192,15 @@ namespace NeteaseToolbox
         private readonly Dictionary<string, ListViewItem> genreRows = new Dictionary<string, ListViewItem>(StringComparer.OrdinalIgnoreCase);
         private readonly List<Button> navigationButtons = new List<Button>();
         private readonly List<Control> navigationPages = new List<Control>();
+        private readonly Dictionary<Button, TabControl> tabButtons = new Dictionary<Button, TabControl>();
+        private readonly HashSet<TabControl> tabBarControls = new HashSet<TabControl>();
+        private Panel navIndicator;
+        private WallpaperPanel sidebar;
+        private WallpaperPanel sidebarViewport;
+        private WallpaperPanel sidebarContent;
+        private Button sidebarScrollUp, sidebarScrollDown;
+        private int sidebarScrollOffset;
+        private SidebarWheelFilter sidebarWheelFilter;
         private readonly TextBox log = new TextBox();
         private Form logWindow;
         private readonly ToolTip tips = new ToolTip();
@@ -247,6 +257,8 @@ namespace NeteaseToolbox
                 InputRoot = Directory.Exists(nearby) ? nearby : "";
             }
             BuildUi();
+            sidebarWheelFilter = new SidebarWheelFilter(this);
+            Application.AddMessageFilter(sidebarWheelFilter);
             LoadTheme();
             LoadCustomAppearance();
             ConfigureTrayIcon();
@@ -260,10 +272,18 @@ namespace NeteaseToolbox
             ConfigureInputWatcher();
             Shown += async delegate
             {
+                StartPhoneSyncServer();
                 await StartLocalPlayback();
                 try { EnsureAutoStart(); }
                 catch (Exception ex) { ReportTask("播放记录", "失败", "登录启动项注册失败：" + ex.Message); }
                 await CheckNeteaseSession();
+                try
+                {
+                    var dedupeNotice = await Task.Run(() => DedupeQuarantine.MarkInterruptedOperations());
+                    if (!string.IsNullOrWhiteSpace(dedupeNotice))
+                        ReportTask("工具箱回收站", "部分失败", dedupeNotice);
+                }
+                catch (Exception ex) { ReportTask("工具箱回收站", "失败", "检查未完成操作失败：" + ex.Message); }
                 if (File.Exists(NeteaseAuth.SessionPath)) {
                     playbackRecorder = new PlaybackRecorder(playbackHistoryPath, ReportPlaybackMessage);
                     try { await playbackRecorder.StartAsync(); }
@@ -295,7 +315,7 @@ namespace NeteaseToolbox
             return button;
         }
 
-        private enum ButtonRole { Primary, Secondary, Navigation, Danger, Ghost }
+        private enum ButtonRole { Primary, Secondary, Navigation, Danger, Ghost, Tab }
 
         private void StyleButton(Button button, ButtonRole role)
         {
@@ -305,16 +325,27 @@ namespace NeteaseToolbox
             button.Cursor = Cursors.Hand;
             button.Font = UiFont(9F,
                 role == ButtonRole.Primary || role == ButtonRole.Danger ? FontStyle.Bold : FontStyle.Regular);
-            button.ForeColor = role == ButtonRole.Navigation ? muted
+            button.ForeColor = role == ButtonRole.Navigation || role == ButtonRole.Tab ? muted
                 : role == ButtonRole.Primary || role == ButtonRole.Danger ? Color.White : theme.ButtonInk;
             button.BackColor = role == ButtonRole.Primary ? accent
                 : role == ButtonRole.Danger ? theme.Danger
-                : role == ButtonRole.Navigation ? panel
+                : role == ButtonRole.Navigation || role == ButtonRole.Tab ? panel
                 : role == ButtonRole.Ghost ? background
                 : theme.Secondary;
             button.UseVisualStyleBackColor = false;
             button.AccessibleDescription = role.ToString();
+            int radius = role == ButtonRole.Navigation ? 8 : 7;
+            button.Resize += delegate { ApplyRoundedCorners(button, radius); };
+            ApplyRoundedCorners(button, radius);
             ApplyButtonAppearance(button, role);
+        }
+
+        private static void ApplyRoundedCorners(Control control, int radius)
+        {
+            if (control.Width <= 0 || control.Height <= 0) return;
+            var previous = control.Region;
+            control.Region = new Region(UiDrawing.RoundedRectangle(new Rectangle(0, 0, control.Width, control.Height), radius));
+            if (previous != null) previous.Dispose();
         }
 
         private Button NavigationButton(string name, string caption, int index)
@@ -324,7 +355,7 @@ namespace NeteaseToolbox
                 Text = caption,
                 Tag = index,
                 Width = 138,
-                Height = 42,
+                Height = 40,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Padding = new Padding(16, 0, 0, 0)
             };
@@ -360,8 +391,133 @@ namespace NeteaseToolbox
                 if (host != null) host.ResumeLayout(true);
                 if (freeze) { SendUiMessage(host.Handle, 0xB, new IntPtr(1), IntPtr.Zero); host.Invalidate(true); }
             }
+            LayoutNavIndicator();
             if (index == 0) UpdateConversionSelectionButtons();
             if (index == 7) OnMultiListenPageOpened();
+        }
+
+        private void LayoutNavIndicator()
+        {
+            if (navIndicator == null || navigationButtons.Count == 0) return;
+            int index = Math.Max(0, Math.Min(navigationButtons.Count - 1, selectedNavigationIndex));
+            var button = navigationButtons[index];
+            navIndicator.Left = Math.Max(4, button.Left - 8);
+            navIndicator.Top = button.Top + (button.Height - navIndicator.Height) / 2;
+            navIndicator.BackColor = accent;
+            navIndicator.BringToFront();
+        }
+
+        private void LayoutSidebarContent()
+        {
+            if (sidebar == null || sidebarViewport == null || sidebarContent == null) return;
+            int width = Math.Max(1, sidebarViewport.ClientSize.Width);
+            sidebarContent.Width = width;
+            int bottom = 0;
+            foreach (Control child in sidebarContent.Controls)
+                if (child.Visible) bottom = Math.Max(bottom, child.Bottom);
+            int height = Math.Max(sidebarViewport.ClientSize.Height, bottom + 2);
+            if (sidebarContent.Height != height) sidebarContent.Height = height;
+            sidebarContent.Left = 0;
+            int maximum = SidebarScrollMaximum();
+            if (sidebarScrollOffset > maximum) sidebarScrollOffset = maximum;
+            sidebarContent.Top = -sidebarScrollOffset;
+            if (sidebarScrollUp != null && sidebarScrollDown != null && sidebar.ClientSize.Width > 0) {
+                int arrowWidth = Math.Max(1, sidebar.ClientSize.Width - 1);
+                sidebarScrollUp.SetBounds(0, 0, arrowWidth, 22);
+                sidebarScrollDown.SetBounds(0, Math.Max(0, sidebar.ClientSize.Height - 22), arrowWidth, 22);
+                sidebarScrollUp.BringToFront();
+                sidebarScrollDown.BringToFront();
+            }
+            UpdateSidebarScrollArrows();
+        }
+
+        private int SidebarScrollMaximum()
+        {
+            if (sidebarViewport == null || sidebarContent == null) return 0;
+            int overflow = sidebarContent.Height - sidebarViewport.ClientSize.Height;
+            return overflow > 0 ? overflow + 22 : 0;
+        }
+
+        private bool ScrollSidebarBy(int delta)
+        {
+            if (sidebarContent == null || sidebarViewport == null) return false;
+            int maximum = SidebarScrollMaximum();
+            if (maximum <= 0) return false;
+            int next = Math.Max(0, Math.Min(maximum, sidebarScrollOffset + delta));
+            if (next == sidebarScrollOffset) return false;
+            sidebarScrollOffset = next;
+            sidebarContent.Top = -sidebarScrollOffset;
+            UpdateSidebarScrollArrows();
+            sidebarViewport.Invalidate();
+            sidebarContent.Invalidate(true);
+            return true;
+        }
+
+        private void UpdateSidebarScrollArrows()
+        {
+            if (sidebarScrollUp == null || sidebarScrollDown == null) return;
+            int maximum = SidebarScrollMaximum();
+            bool overflow = maximum > 0;
+            sidebarScrollUp.Visible = overflow;
+            sidebarScrollDown.Visible = overflow;
+            sidebarScrollUp.Enabled = overflow && sidebarScrollOffset > 0;
+            sidebarScrollDown.Enabled = overflow && sidebarScrollOffset < maximum;
+            sidebarScrollUp.ForeColor = sidebarScrollUp.Enabled ? theme.ButtonInk : theme.Muted;
+            sidebarScrollDown.ForeColor = sidebarScrollDown.Enabled ? theme.ButtonInk : theme.Muted;
+        }
+
+        private sealed class SidebarWheelFilter : IMessageFilter
+        {
+            private readonly ToolboxForm form;
+            internal SidebarWheelFilter(ToolboxForm form) { this.form = form; }
+            public bool PreFilterMessage(ref Message message)
+            {
+                if (message.Msg != 0x20A) return false;
+                var bar = form.sidebar;
+                if (bar == null || bar.IsDisposed || !bar.Visible || !form.Visible
+                    || form.WindowState == FormWindowState.Minimized) return false;
+                long position = message.LParam.ToInt64();
+                var screen = new Point(unchecked((short)(position & 0xFFFF)), unchecked((short)((position >> 16) & 0xFFFF)));
+                if (!bar.RectangleToScreen(bar.ClientRectangle).Contains(screen)) return false;
+                int delta = unchecked((short)((message.WParam.ToInt64() >> 16) & 0xFFFF));
+                if (delta == 0) return false;
+                int notches = delta / 120;
+                if (notches == 0) notches = Math.Sign(delta);
+                return form.ScrollSidebarBy(-notches * 64);
+            }
+        }
+
+        private Control BuildTabBar(TabControl tabs, string name)
+        {
+            tabBarControls.Add(tabs);
+            ApplyTabTheme(tabs);
+            var bar = new WallpaperPanel { Name = name, Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            var row = new FlowLayoutPanel {
+                Dock = DockStyle.Fill, WrapContents = false, BackColor = Color.Transparent,
+                Padding = new Padding(0, 4, 0, 0)
+            };
+            bar.Controls.Add(row);
+            for (int index = 0; index < tabs.TabPages.Count; index++) {
+                int selectedIndex = index;
+                string text = tabs.TabPages[index].Text;
+                var button = new Button {
+                    Name = name + "Button" + index, Text = text, Tag = index, Height = 32,
+                    Width = Math.Max(108, TextRenderer.MeasureText(text, UiFont(9F, FontStyle.Bold)).Width + 34)
+                };
+                tabButtons[button] = tabs;
+                StyleButton(button, ButtonRole.Tab);
+                button.Click += delegate { tabs.SelectedIndex = selectedIndex; };
+                row.Controls.Add(button);
+            }
+            tabs.SelectedIndexChanged += delegate { UpdateTabBar(tabs); };
+            UpdateTabBar(tabs);
+            return bar;
+        }
+
+        private void UpdateTabBar(TabControl tabs)
+        {
+            foreach (var pair in tabButtons)
+                if (pair.Value == tabs) ApplyButtonAppearance(pair.Key, ButtonRole.Tab);
         }
 
         private void BuildUi()
@@ -369,15 +525,19 @@ namespace NeteaseToolbox
             Size = new Size(1040, 740);
             var root = new TableLayoutPanel { Name = "AppShell", Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 108));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             Controls.Add(root);
 
             var topbar = new WallpaperPanel { Name = "TopBar", Dock = DockStyle.Fill, BackColor = background };
+            topbar.Paint += delegate(object sender, PaintEventArgs e) {
+                using (var pen = new Pen(theme.Border))
+                    e.Graphics.DrawLine(pen, 0, topbar.ClientSize.Height - 1, topbar.ClientSize.Width, topbar.ClientSize.Height - 1);
+            };
             var title = Label("网易云工具箱", 16, true, ink);
             title.Name = "AppTitle";
-            title.Location = new Point(22, 7);
+            title.Location = new Point(22, 12);
             topbar.Controls.Add(title);
             var version = Label("v" + Assembly.GetExecutingAssembly().GetName().Version, 8, false, muted);
             version.Name = "VersionLabel";
@@ -431,10 +591,15 @@ namespace NeteaseToolbox
             body.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.Controls.Add(body, 0, 1);
 
-            var sidebar = new WallpaperPanel { Name = "Sidebar", Dock = DockStyle.Fill, BackColor = panel, AutoScroll = true };
+            sidebar = new WallpaperPanel { Name = "Sidebar", Dock = DockStyle.Fill, BackColor = panel };
+            sidebarViewport = new WallpaperPanel { Name = "SidebarViewport", Dock = DockStyle.Fill, BackColor = Color.Transparent };
+            sidebarContent = new WallpaperPanel { Name = "SidebarContent", Location = new Point(0, 0), BackColor = Color.Transparent };
+            sidebarViewport.Controls.Add(sidebarContent);
+            sidebarViewport.SizeChanged += delegate { LayoutSidebarContent(); };
+            sidebar.Controls.Add(sidebarViewport);
             var navigationTitle = Label("功能", 9, true, muted);
-            navigationTitle.Location = new Point(18, 20);
-            sidebar.Controls.Add(navigationTitle);
+            navigationTitle.Location = new Point(18, 24);
+            sidebarContent.Controls.Add(navigationTitle);
             var conversionNavigation = NavigationButton("ConversionNavigation", "音乐转换", 0);
             var genreNavigation = NavigationButton("GenreNavigation", "曲风分析", 1);
             var profileNavigation = NavigationButton("ProfileNavigation", "听歌画像", 2);
@@ -444,41 +609,71 @@ namespace NeteaseToolbox
             var signinNavigation = NavigationButton("DailySigninNavigation", "每日签到", 6);
             var multiListenNavigation = NavigationButton("MultiListenNavigation", "多人一起听", 7);
             conversionNavigation.Location = new Point(16, 48);
-            genreNavigation.Location = new Point(16, 96);
-            profileNavigation.Location = new Point(16, 144);
-            memoryNavigation.Location = new Point(16, 192);
-            settingsNavigation.Location = new Point(16, 240);
-            sidebar.Controls.Add(conversionNavigation);
-            sidebar.Controls.Add(genreNavigation);
-            sidebar.Controls.Add(profileNavigation);
-            sidebar.Controls.Add(memoryNavigation);
-            sidebar.Controls.Add(settingsNavigation);
-            audioNavigation.Location = new Point(16, 288);
-            sidebar.Controls.Add(audioNavigation);
-            signinNavigation.Location = new Point(16, 336);
-            sidebar.Controls.Add(signinNavigation);
-            multiListenNavigation.Location = new Point(16, 384);
-            sidebar.Controls.Add(multiListenNavigation);
-            BuildAccountUi(sidebar);
+            genreNavigation.Location = new Point(16, 92);
+            profileNavigation.Location = new Point(16, 136);
+            memoryNavigation.Location = new Point(16, 180);
+            settingsNavigation.Location = new Point(16, 224);
+            sidebarContent.Controls.Add(conversionNavigation);
+            sidebarContent.Controls.Add(genreNavigation);
+            sidebarContent.Controls.Add(profileNavigation);
+            sidebarContent.Controls.Add(memoryNavigation);
+            sidebarContent.Controls.Add(settingsNavigation);
+            audioNavigation.Location = new Point(16, 268);
+            sidebarContent.Controls.Add(audioNavigation);
+            signinNavigation.Location = new Point(16, 312);
+            sidebarContent.Controls.Add(signinNavigation);
+            multiListenNavigation.Location = new Point(16, 356);
+            sidebarContent.Controls.Add(multiListenNavigation);
+            navIndicator = new Panel { Name = "NavigationIndicator", Size = new Size(3, 22), BackColor = accent };
+            sidebarContent.Controls.Add(navIndicator);
+            navIndicator.BringToFront();
+            BuildAccountUi(sidebarContent);
+            sidebarScrollUp = new Button {
+                Name = "SidebarScrollUp", Text = "▲", Size = new Size(169, 22),
+                TabStop = false, TextAlign = ContentAlignment.MiddleCenter
+            };
+            StyleButton(sidebarScrollUp, ButtonRole.Ghost);
+            sidebarScrollUp.Font = UiFont(8F);
+            tips.SetToolTip(sidebarScrollUp, "向上滚动侧栏");
+            sidebarScrollUp.Click += delegate { ScrollSidebarBy(-80); };
+            sidebar.Controls.Add(sidebarScrollUp);
+            sidebarScrollDown = new Button {
+                Name = "SidebarScrollDown", Text = "▼", Size = new Size(169, 22),
+                TabStop = false, TextAlign = ContentAlignment.MiddleCenter
+            };
+            StyleButton(sidebarScrollDown, ButtonRole.Ghost);
+            sidebarScrollDown.Font = UiFont(8F);
+            tips.SetToolTip(sidebarScrollDown, "向下滚动侧栏");
+            sidebarScrollDown.Click += delegate { ScrollSidebarBy(80); };
+            sidebar.Controls.Add(sidebarScrollDown);
             sidebar.Layout += delegate {
                 int width = Math.Max(110, Math.Min(138, sidebar.ClientSize.Width - 32));
                 foreach (var button in navigationButtons) if (button.Width != width) button.Width = width;
                 if (accountButton.Width != width) accountButton.Width = width;
                 accountStatus.Width = Math.Max(106, sidebar.ClientSize.Width - 36);
                 LayoutAccountUi();
+                LayoutNavIndicator();
+                LayoutSidebarContent();
+            };
+            sidebar.Paint += delegate(object sender, PaintEventArgs e) {
+                using (var pen = new Pen(theme.Border)) {
+                    int right = sidebar.ClientSize.Width - 1;
+                    e.Graphics.DrawLine(pen, right, 0, right, sidebar.ClientSize.Height);
+                }
             };
             body.Controls.Add(sidebar, 0, 0);
 
             var pageHost = new WallpaperPanel { Name = "PageHost", Dock = DockStyle.Fill, BackColor = background };
             body.Controls.Add(pageHost, 1, 0);
 
-            var conversionPage = new TableLayoutPanel { Name = "ConversionPage", Dock = DockStyle.Fill, Padding = new Padding(24, 18, 24, 18), ColumnCount = 1, RowCount = 3 };
+            var conversionPage = new TableLayoutPanel { Name = "ConversionPage", Dock = DockStyle.Fill, Padding = new Padding(24, 18, 24, 18), ColumnCount = 1, RowCount = 4 };
             conversionPage.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             conversionPage.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
+            conversionPage.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             conversionPage.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             conversionPage.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
             var songHeader = new WallpaperPanel { Name = "ConversionHeader", Dock = DockStyle.Fill };
-            var songTitle = Label("本地歌曲", 13, true, ink);
+            var songTitle = Label("本地歌曲", 16, true, ink);
             songTitle.Location = new Point(3, 4);
             songHeader.Controls.Add(songTitle);
             summary.AutoSize = true;
@@ -531,7 +726,9 @@ namespace NeteaseToolbox
             convertedTab.Controls.Add(convertedSongs);
             songTabs.TabPages.Add(pendingTab);
             songTabs.TabPages.Add(convertedTab);
-            conversionPage.Controls.Add(songTabs, 0, 1);
+            ApplyTabTheme(songTabs);
+            conversionPage.Controls.Add(BuildTabBar(songTabs, "ConversionTabBar"), 0, 1);
+            conversionPage.Controls.Add(songTabs, 0, 2);
 
             var conversionFooter = new WallpaperPanel { Name = "ConversionFooter", Dock = DockStyle.Fill };
             outputStatus.AutoSize = false;
@@ -573,7 +770,7 @@ namespace NeteaseToolbox
                 folderButton.Left = extractCoverButton.Left - folderButton.Width - 10;
                 outputStatus.Width = Math.Max(180, folderButton.Left - 18);
             };
-            conversionPage.Controls.Add(conversionFooter, 0, 2);
+            conversionPage.Controls.Add(conversionFooter, 0, 3);
 
             var genrePage = new TableLayoutPanel { Name = "GenrePage", Dock = DockStyle.Fill, Padding = new Padding(24, 18, 24, 18), ColumnCount = 1, RowCount = 3 };
             genrePage.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -581,7 +778,7 @@ namespace NeteaseToolbox
             genrePage.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
             genrePage.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             var genreHeader = new WallpaperPanel { Name = "GenreHeader", Dock = DockStyle.Fill };
-            var genreTitle = Label("曲风分析", 13, true, ink);
+            var genreTitle = Label("曲风分析", 16, true, ink);
             genreTitle.Location = new Point(3, 4);
             genreHeader.Controls.Add(genreTitle);
             var genreDescription = Label("读取歌曲百科标签；双击歌曲可以手动修正。", 9, false, muted);
@@ -623,24 +820,35 @@ namespace NeteaseToolbox
             var memoryPage = BuildMemoryRecallPage();
 
             var settingsPage = new WallpaperPanel { Name = "SettingsPage", Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(28, 22, 28, 22) };
-            var settingsTitle = Label("设置与维护", 13, true, ink);
+            var settingsTitle = Label("设置与维护", 16, true, ink);
             settingsTitle.Location = new Point(28, 22);
             settingsPage.Controls.Add(settingsTitle);
             var settingsDescription = Label("集中管理低频设置和可能影响文件的维护操作。", 9, false, muted);
             settingsDescription.Location = new Point(29, 54);
             settingsPage.Controls.Add(settingsDescription);
+            var appearanceCard = new OutlineCard { Name = "AppearanceCard", BackColor = panel, Location = new Point(28, 90), Size = new Size(760, 180) };
+            var appearanceTitle = Label("外观", 11, true, ink);
+            appearanceTitle.Location = new Point(18, 14);
+            appearanceCard.Controls.Add(appearanceTitle);
+            var appearanceDescription = Label("主题、按钮颜色、背景图片与 UI 字体。", 9, false, muted);
+            appearanceDescription.Location = new Point(19, 38);
+            appearanceCard.Controls.Add(appearanceDescription);
             var themeRow = BuildThemeSelector();
-            settingsPage.Controls.Add(themeRow);
+            themeRow.Location = new Point(120, 8);
+            appearanceCard.Controls.Add(themeRow);
             var appearanceRow = BuildCustomAppearance();
-            settingsPage.Controls.Add(appearanceRow);
-            var outputCard = new WallpaperPanel { Name = "OutputSettingsCard", BackColor = panel, Location = new Point(28, 90), Size = new Size(760, 128), Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top };
+            appearanceRow.Location = new Point(14, 62);
+            appearanceCard.Controls.Add(appearanceRow);
+            settingsPage.Controls.Add(appearanceCard);
+
+            var outputCard = new OutlineCard { Name = "OutputSettingsCard", BackColor = panel, Location = new Point(28, 90), Size = new Size(760, 116) };
             var outputTitle = Label("转换输出目录", 11, true, ink);
             outputTitle.Location = new Point(18, 16);
             outputCard.Controls.Add(outputTitle);
             settingsOutputStatus.AutoSize = false;
             settingsOutputStatus.ForeColor = muted;
-            settingsOutputStatus.Location = new Point(18, 47);
-            settingsOutputStatus.Size = new Size(500, 24);
+            settingsOutputStatus.Location = new Point(18, 42);
+            settingsOutputStatus.Size = new Size(500, 22);
             settingsOutputStatus.AutoEllipsis = true;
             outputCard.Controls.Add(settingsOutputStatus);
             chooseOutputButton.Name = "ChooseOutputButton";
@@ -658,54 +866,92 @@ namespace NeteaseToolbox
             outputCard.Resize += delegate {
                 settingsOutputStatus.Width = Math.Max(180, outputCard.ClientSize.Width - 36);
             };
-            chooseOutputButton.Location = new Point(18, 76);
-            resetOutputButton.Location = new Point(160, 76);
+            chooseOutputButton.Location = new Point(18, 68);
+            resetOutputButton.Location = new Point(160, 68);
             settingsOutputStatus.Width = Math.Max(180, outputCard.ClientSize.Width - 36);
             settingsPage.Controls.Add(outputCard);
-            var maintenanceCard = new WallpaperPanel { Name = "MaintenanceCard", BackColor = panel, Location = new Point(28, 234), Size = new Size(760, 126), Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top };
+
+            var maintenanceCard = new OutlineCard { Name = "MaintenanceCard", BackColor = panel, Location = new Point(28, 234), Size = new Size(760, 116) };
             var maintenanceTitle = Label("歌曲维护", 11, true, ink);
             maintenanceTitle.Location = new Point(18, 16);
             maintenanceCard.Controls.Add(maintenanceTitle);
-            var maintenanceDescription = Label("扫描重复歌曲并保留音质更高的版本。此操作会删除较低质量文件。", 9, false, muted);
-            maintenanceDescription.Location = new Point(18, 47);
+            var maintenanceDescription = Label("扫描重复歌曲，先预览再决定；确认后移入工具箱回收站，可恢复。", 9, false, muted);
+            maintenanceDescription.Location = new Point(18, 42);
             maintenanceCard.Controls.Add(maintenanceDescription);
             deduplicateButton.Name = "DeduplicateButton";
-            deduplicateButton.Text = "扫描并去重";
-            deduplicateButton.Size = new Size(190, 40);
-            deduplicateButton.Location = new Point(18, 76);
+            deduplicateButton.Text = "曲库安全去重";
+            deduplicateButton.Size = new Size(180, 38);
+            deduplicateButton.Location = new Point(18, 68);
             StyleButton(deduplicateButton, ButtonRole.Danger);
-            deduplicateButton.Click += async delegate { await DeduplicateSongs(); };
+            deduplicateButton.Click += delegate { OpenSafeDedupe(); };
+            tips.SetToolTip(deduplicateButton, "扫描、预览并确认后才把选中的重复文件移入工具箱回收站。");
             maintenanceCard.Controls.Add(deduplicateButton);
+            var trashButton = new Button { Name = "TrashButton", Text = "工具箱回收站", Size = new Size(160, 38), Location = new Point(210, 68) };
+            StyleButton(trashButton, ButtonRole.Secondary);
+            trashButton.Click += delegate { OpenTrash(); };
+            tips.SetToolTip(trashButton, "查看、恢复或永久清理由安全去重移入隔离目录的文件。");
+            maintenanceCard.Controls.Add(trashButton);
             settingsPage.Controls.Add(maintenanceCard);
-            var aiSettingsButton = new Button { Name = "PortraitAiSettingsButton", Text = "AI 画像接口与提示词", Size = new Size(190, 40) };
-            StyleButton(aiSettingsButton, ButtonRole.Secondary);
-            aiSettingsButton.Click += delegate { ShowPortraitAiSettings(); };
-            settingsPage.Controls.Add(aiSettingsButton);
-            var portableButtons = new FlowLayoutPanel { Name = "PortableSettings", Height = 52, Width = 740 };
+
+            var toolsCard = new OutlineCard { Name = "ToolsCard", BackColor = panel, Location = new Point(28, 366), Size = new Size(760, 104) };
+            var toolsTitle = Label("工具与运行环境", 11, true, ink);
+            toolsTitle.Location = new Point(18, 14);
+            toolsCard.Controls.Add(toolsTitle);
+            var toolsDescription = Label("网易云安装目录、登录运行环境和画像接口。", 9, false, muted);
+            toolsDescription.Location = new Point(18, 38);
+            toolsCard.Controls.Add(toolsDescription);
+            var portableButtons = new FlowLayoutPanel {
+                Name = "PortableSettings", Location = new Point(18, 58), AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, BackColor = Color.Transparent
+            };
             var clientFolderButton = Button("网易云安装目录", false);
             clientFolderButton.Name = "ChooseClientFolderButton";
             clientFolderButton.Width = 160;
+            clientFolderButton.Margin = new Padding(0, 0, 8, 4);
             clientFolderButton.Click += delegate { ChooseClientFolder(); };
             var environmentButton = Button("检查运行环境", false);
             environmentButton.Name = "EnvironmentCheckButton";
             environmentButton.Width = 150;
+            environmentButton.Margin = new Padding(0, 0, 8, 4);
             environmentButton.Click += async delegate { await CheckPortableEnvironment(); };
-            portableButtons.Controls.Add(clientFolderButton);
-            portableButtons.Controls.Add(environmentButton);
             var setupEnvironmentButton = Button("配置登录运行环境", false);
             setupEnvironmentButton.Width = 170;
             setupEnvironmentButton.Name = "SetupEnvironmentButton";
+            setupEnvironmentButton.Margin = new Padding(0, 0, 8, 4);
             setupEnvironmentButton.Click += async delegate { await SetupPortableEnvironment(); };
+            var aiSettingsButton = new Button { Name = "PortraitAiSettingsButton", Text = "AI 画像接口与提示词", Size = new Size(190, 40) };
+            aiSettingsButton.Margin = new Padding(0, 0, 8, 4);
+            StyleButton(aiSettingsButton, ButtonRole.Secondary);
+            aiSettingsButton.Click += delegate { ShowPortraitAiSettings(); };
+            portableButtons.Controls.Add(clientFolderButton);
+            portableButtons.Controls.Add(environmentButton);
             portableButtons.Controls.Add(setupEnvironmentButton);
-            settingsPage.Controls.Add(portableButtons);
+            portableButtons.Controls.Add(aiSettingsButton);
+            toolsCard.Controls.Add(portableButtons);
+            settingsPage.Controls.Add(toolsCard);
+
             settingsPage.Layout += delegate {
-                settingsDescription.Top = settingsTitle.Bottom + 4;
-                themeRow.Top = settingsDescription.Bottom + 12;
-                appearanceRow.Top = themeRow.Bottom + 8;
-                outputCard.Top = appearanceRow.Bottom + 12;
-                maintenanceCard.Top = outputCard.Bottom + 16;
-                aiSettingsButton.Location = new Point(28, maintenanceCard.Bottom + 18);
-                portableButtons.Location = new Point(28, aiSettingsButton.Bottom + 12);
+                if (settingsPage.ClientSize.Width < 300) return;
+                settingsDescription.Top = settingsTitle.Bottom + 2;
+                int contentWidth = Math.Max(360, settingsPage.ClientSize.Width - 56);
+                appearanceCard.SetBounds(28, settingsDescription.Bottom + 10, contentWidth, appearanceCard.Height);
+                int appearanceHeight = Math.Max(150, appearanceRow.Bottom + 14);
+                if (appearanceCard.Height != appearanceHeight) appearanceCard.Height = appearanceHeight;
+
+                bool sideBySide = contentWidth >= 700;
+                int gap = 16;
+                int cardWidth = sideBySide ? (contentWidth - gap) / 2 : contentWidth;
+                int cardTop = appearanceCard.Bottom + 12;
+                outputCard.SetBounds(28, cardTop, cardWidth, 116);
+                maintenanceCard.SetBounds(sideBySide ? 28 + cardWidth + gap : 28,
+                    sideBySide ? cardTop : outputCard.Bottom + 12, cardWidth, 116);
+
+                int toolsTop = Math.Max(outputCard.Bottom, maintenanceCard.Bottom) + 12;
+                toolsCard.SetBounds(28, toolsTop, contentWidth, 100);
+                int innerWidth = Math.Max(200, toolsCard.ClientSize.Width - 36);
+                if (portableButtons.MaximumSize.Width != innerWidth) portableButtons.MaximumSize = new Size(innerWidth, 0);
+                int toolsHeight = Math.Max(100, portableButtons.Bottom + 12);
+                if (toolsCard.Height != toolsHeight) toolsCard.Height = toolsHeight;
             };
 
             navigationPages.Add(conversionPage);
@@ -730,6 +976,9 @@ namespace NeteaseToolbox
             NavigateTo(0);
 
             var taskBar = new WallpaperPanel { Name = "TaskStatusBar", Dock = DockStyle.Fill, BackColor = panel };
+            taskBar.Paint += delegate(object sender, PaintEventArgs e) {
+                using (var pen = new Pen(theme.Border)) e.Graphics.DrawLine(pen, 0, 0, taskBar.ClientSize.Width, 0);
+            };
             taskStatus.Name = "TaskStatus";
             taskStatus.Text = "任务状态：就绪";
             taskStatus.ForeColor = muted;
@@ -759,12 +1008,12 @@ namespace NeteaseToolbox
                 ColumnCount = 1, RowCount = 3
             };
             page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            page.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+            page.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
             page.RowStyles.Add(new RowStyle(SizeType.Absolute, 184));
             page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             var header = new WallpaperPanel { Name = "MemoryRecallHeader", Dock = DockStyle.Fill };
-            var title = Label("音乐记忆考古", 13, true, ink);
+            var title = Label("音乐记忆考古", 16, true, ink);
             title.Location = new Point(3, 2);
             header.Controls.Add(title);
             memorySourceStatus.Name = "MemoryRecallSourceStatus";
@@ -774,6 +1023,7 @@ namespace NeteaseToolbox
             memorySourceStatus.Size = new Size(650, 20);
             memorySourceStatus.Text = "本机读取播放记录和歌词，按播放时间检索；不读取位置或照片数据。";
             header.Controls.Add(memorySourceStatus);
+            header.Layout += delegate { memorySourceStatus.Top = title.Bottom + 2; };
             page.Controls.Add(header, 0, 0);
 
             var searchPanel = new WallpaperPanel { Name = "MemoryRecallSearchPanel", Dock = DockStyle.Fill };
@@ -1112,7 +1362,7 @@ namespace NeteaseToolbox
         private void ConfigureProfileTab(Control tab)
         {
             var header = new WallpaperPanel { Name = "ProfileHeader", Dock = DockStyle.Fill };
-            var profileTitle = Label("听歌画像", 13, true, ink);
+            var profileTitle = Label("听歌画像", 16, true, ink);
             profileTitle.Location = new Point(3, 4);
             header.Controls.Add(profileTitle);
             refreshProfileButton.Text = "刷新网易云数据";
@@ -1187,12 +1437,15 @@ namespace NeteaseToolbox
             portraitTabs.TabPages.Add(recentTab);
             portraitTabs.TabPages.Add(detailsTab);
             portraitTabs.TabPages.Add(BuildLocalPlaybackTab());
-            var profileLayout = new TableLayoutPanel { Name = "ProfileLayout", Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+            ApplyTabTheme(portraitTabs);
+            var profileLayout = new TableLayoutPanel { Name = "ProfileLayout", Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
             profileLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             profileLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
+            profileLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             profileLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             profileLayout.Controls.Add(header, 0, 0);
-            profileLayout.Controls.Add(portraitTabs, 0, 1);
+            profileLayout.Controls.Add(BuildTabBar(portraitTabs, "ProfileTabBar"), 0, 1);
+            profileLayout.Controls.Add(portraitTabs, 0, 2);
             tab.Controls.Add(profileLayout);
             Shown += async delegate {
                 await RefreshPortrait("all");
@@ -1461,8 +1714,10 @@ namespace NeteaseToolbox
             try
             {
                 if (!Directory.Exists(InputRoot)) throw new DirectoryNotFoundException("请点击“选择音乐目录”，选择本机的 NCM 歌曲文件夹。");
-                var files = Directory.EnumerateFiles(InputRoot, "*.ncm", SearchOption.AllDirectories)
-                    .Select(path => new FileInfo(path)).OrderByDescending(file => file.LastWriteTimeUtc).ToArray();
+                var scanErrors = new List<string>();
+                var files = DedupeFileSystem.EnumerateNcmFiles(InputRoot, true, scanErrors)
+                    .OrderByDescending(file => file.LastWriteTimeUtc).ToArray();
+                if (scanErrors.Count > 0) WriteLog("歌曲扫描跳过 " + scanErrors.Count + " 个项目：" + scanErrors[0]);
                 foreach (var file in files)
                 {
                     var output = OutputFor(file.FullName);
@@ -2264,63 +2519,60 @@ namespace NeteaseToolbox
             await ConvertFiles(selected, reconvert);
         }
 
-        private async Task DeduplicateSongs()
+        private DedupePalette CurrentDedupePalette()
         {
-            if (converting || deduplicating || analyzingGenres) return;
-            if (!File.Exists(scriptPath)) { ReportTask("扫描去重", "失败", "转换脚本不存在。"); return; }
+            return new DedupePalette(background, panel, ink, muted, accent, theme.Border, theme.Secondary,
+                theme.ButtonInk, theme.Danger, theme.Success, theme.Error);
+        }
+
+        private void OpenSafeDedupe()
+        {
+            if (converting || deduplicating || extractingCover || analyzingGenres) return;
+            if (string.IsNullOrEmpty(InputRoot) || !Directory.Exists(InputRoot))
+            {
+                ReportTask("安全去重", "失败", "请先选择音乐目录。");
+                return;
+            }
+            if (!File.Exists(scriptPath))
+            {
+                ReportTask("安全去重", "失败", "转换脚本不存在。");
+                return;
+            }
             deduplicating = true;
-            var destination = outputRoot;
-            convertButton.Enabled = false;
-            deduplicateButton.Enabled = false;
-            scanButton.Enabled = false;
-            chooseOutputButton.Enabled = false;
-            resetOutputButton.Enabled = false;
-            convertSelectedButton.Enabled = false;
-            deduplicateButton.Text = "正在去重…";
-            ReportTask("扫描去重", "开始", "正在扫描重复歌曲。");
-            WriteLog("开始扫描全部歌曲并删除低音质重复项（不备份）。");
+            UpdateConversionSelectionButtons();
             try
             {
-                var result = await Task.Run(() => {
-                    var info = new ProcessStartInfo("powershell.exe") {
-                        Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File " + Quoted(scriptPath)
-                            + " -DeduplicateOnly -SourceRoot " + Quoted(InputRoot)
-                            + (destination == null ? "" : " -OutputDir " + Quoted(destination)),
-                        WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        StandardOutputEncoding = Encoding.UTF8,
-                        StandardErrorEncoding = Encoding.UTF8
-                    };
-                    using (var process = new Process { StartInfo = info })
-                    {
-                        string firstError = null;
-                        process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e) { if (e.Data != null) WriteLog(e.Data); };
-                        process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e) {
-                            if (e.Data != null) { if (firstError == null) firstError = e.Data; WriteLog(e.Data); }
-                        };
-                        process.Start();
-                        process.BeginOutputReadLine();
-                        process.BeginErrorReadLine();
-                        process.WaitForExit();
-                        return new KeyValuePair<int, string>(process.ExitCode, firstError);
-                    }
-                });
-                if (result.Key == 0) ReportTask("扫描去重", "完成", "重复歌曲扫描已结束。");
-                else ReportTask("扫描去重", "失败", result.Value ?? "进程退出码 " + result.Key);
+                using (var form = new DedupePreviewForm(InputRoot, outputRoot, scriptPath,
+                    CurrentDedupePalette(), ReportTask, delegate { ScanSongs(); }))
+                {
+                    form.ShowDialog(this);
+                }
             }
-            catch (Exception ex) { ReportTask("扫描去重", "失败", ex.Message); }
             finally
             {
                 deduplicating = false;
-                deduplicateButton.Text = "扫描并去重";
-                deduplicateButton.Enabled = true;
-                scanButton.Enabled = true;
-                chooseOutputButton.Enabled = true;
-                resetOutputButton.Enabled = true;
                 ScanSongs();
+                UpdateConversionSelectionButtons();
+            }
+        }
+
+        private void OpenTrash()
+        {
+            if (converting || deduplicating || extractingCover || analyzingGenres) return;
+            deduplicating = true;
+            UpdateConversionSelectionButtons();
+            try
+            {
+                using (var form = new DedupeTrashForm(CurrentDedupePalette(), ReportTask, delegate { ScanSongs(); }))
+                {
+                    form.ShowDialog(this);
+                }
+            }
+            finally
+            {
+                deduplicating = false;
+                ScanSongs();
+                UpdateConversionSelectionButtons();
             }
         }
 
@@ -2343,8 +2595,28 @@ namespace NeteaseToolbox
             WriteLog(reconvert
                 ? "开始重新转换 " + snapshot.Length + " 首已转换歌曲。"
                 : "开始转换 " + snapshot.Length + " 首歌曲。");
+            var skippedDuplicates = 0;
             try
             {
+                if (!reconvert)
+                {
+                    var decision = await DetectConversionDuplicates(snapshot);
+                    if (decision.Cancel)
+                    {
+                        ReportTask(taskName, "已取消", "已取消转换，未修改任何文件。");
+                        return;
+                    }
+                    snapshot = decision.Files;
+                    skippedDuplicates = decision.Skipped;
+                    if (snapshot.Length == 0)
+                    {
+                        ReportTask(taskName, "完成", "所选歌曲均已有更高质量版本，未执行转换；源 NCM 未删除。");
+                        return;
+                    }
+                    if (skippedDuplicates > 0)
+                        ReportTask(taskName, "开始", "已跳过 " + skippedDuplicates + " 首低音质重复项，准备转换 " + snapshot.Length + " 首。");
+                }
+                var conversionTaskId = Guid.NewGuid().ToString("N");
                 var result = await Task.Run(() => {
                     var outcome = new WorkerResult();
                     var gate = new object();
@@ -2356,6 +2628,7 @@ namespace NeteaseToolbox
                             Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File " + Quoted(scriptPath)
                                 + (destination == null ? "" : " -OutputDir " + Quoted(destination))
                                 + " -SourceRoot " + Quoted(InputRoot)
+                                + " -ConversionTaskId " + Quoted(conversionTaskId)
                                 + " " + string.Join(" ", batch.Select(Quoted)),
                             WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
                             UseShellExecute = false,
@@ -2406,8 +2679,9 @@ namespace NeteaseToolbox
                 if (result.ExitCode != 0 || result.ErrorCount > 0)
                     ReportTask(taskName, result.CompletedCount > 0 ? "部分失败" : "失败", result.CompletedCount + " 首完成，" + result.ErrorCount + " 首失败" +
                         (result.FirstError == null ? "；进程退出码 " + result.ExitCode : "；" + result.FirstError));
-                else ReportTask(taskName, "完成", "已转换 " + result.CompletedCount + " 首歌曲。" +
-                    (result.CompletedCount < snapshot.Length ? "其余歌曲可能已在去重时跳过。" : ""));
+                else ReportTask(taskName, "完成", "已转换 " + result.CompletedCount + " 首歌曲。"
+                    + (skippedDuplicates > 0 ? "已按重复检测跳过 " + skippedDuplicates + " 首低音质重复项，源 NCM 未删除。" : "")
+                    + (result.CompletedCount < snapshot.Length ? "部分歌曲未完成，请查看任务消息。" : ""));
             }
             catch (Exception ex) { ReportTask(taskName, "失败", ex.Message); }
             finally
@@ -2419,6 +2693,78 @@ namespace NeteaseToolbox
                 convertButton.Text = "转换全部新歌";
                 deduplicateButton.Enabled = true;
                 ScanSongs();
+            }
+        }
+
+        private sealed class ConversionDedupeDecision
+        {
+            public bool Cancel;
+            public string[] Files;
+            public int Skipped;
+        }
+
+        private async Task<ConversionDedupeDecision> DetectConversionDuplicates(string[] snapshot)
+        {
+            var decision = new ConversionDedupeDecision { Files = snapshot, Skipped = 0 };
+            if (string.IsNullOrWhiteSpace(InputRoot) || !Directory.Exists(InputRoot) || !File.Exists(scriptPath))
+                return decision;
+            ReportTask("重复检测", "开始", "正在只读检查待转换歌曲是否已有更高质量版本。");
+            try
+            {
+                var options = new DedupePlanOptions
+                {
+                    Root = InputRoot,
+                    OutputRoot = outputRoot,
+                    Recurse = true,
+                    ShowAssociated = false,
+                    IncludeSuspected = false,
+                    VerifyAssociatedHashes = false
+                };
+                var plan = await Task.Run(() =>
+                {
+                    var scan = DedupeScanner.Scan(scriptPath, InputRoot, true, CancellationToken.None);
+                    return DedupePlanner.Build(scan, options, new List<ConversionRecord>(), new List<string>());
+                });
+                if (IsDisposed) return decision;
+                var recommended = new HashSet<string>(
+                    plan.Groups.SelectMany(group => group.Files).Where(file => file.IsSelected)
+                        .Select(file => DedupeFileSystem.Normalize(file.Path)),
+                    StringComparer.OrdinalIgnoreCase);
+                var skip = snapshot.Where(path => recommended.Contains(DedupeFileSystem.Normalize(path)))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                if (skip.Length == 0)
+                {
+                    ReportTask("重复检测", "完成", "未发现需要跳过的低音质重复项。");
+                    return decision;
+                }
+                var names = string.Join("\r\n", skip.Take(8).Select(path => Path.GetFileName(path)).ToArray());
+                if (skip.Length > 8) names += "\r\n…";
+                var message = "发现 " + skip.Length + " 首待转换歌曲已有更高质量的同曲版本。\r\n\r\n"
+                    + names + "\r\n\r\n是：跳过这些低音质版本并继续转换\r\n否：仍然全部转换\r\n取消：取消本次转换"
+                    + "\r\n\r\n跳过和取消都不会删除任何源 NCM 文件。";
+                var choice = MessageBox.Show(this, message, "转换前重复检测",
+                    MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1);
+                if (choice == DialogResult.Cancel)
+                {
+                    decision.Cancel = true;
+                    ReportTask("重复检测", "已取消", "已取消转换，未修改任何文件。");
+                    return decision;
+                }
+                if (choice == DialogResult.No)
+                {
+                    ReportTask("重复检测", "完成", "已选择仍然全部转换，未删除任何文件。");
+                    return decision;
+                }
+                var skipSet = new HashSet<string>(skip.Select(path => DedupeFileSystem.Normalize(path)), StringComparer.OrdinalIgnoreCase);
+                decision.Files = snapshot.Where(path => !skipSet.Contains(DedupeFileSystem.Normalize(path))).ToArray();
+                decision.Skipped = skip.Length;
+                ReportTask("重复检测", "完成", "已选择跳过 " + skip.Length + " 首低音质重复项；源 NCM 未删除。");
+                return decision;
+            }
+            catch (Exception ex)
+            {
+                ReportTask("重复检测", "部分失败", "检查失败，将继续转换且不会删除任何文件：" + ex.Message);
+                return decision;
             }
         }
 
@@ -2659,6 +3005,7 @@ namespace NeteaseToolbox
             audioUiTimer.Dispose();
             audioForwarder.Dispose();
             multiListenTimer.Dispose();
+            StopPhoneSyncServer();
             StopLocalPlayback();
             if (playbackRecorder != null) playbackRecorder.Dispose();
             if (trayIcon != null) { trayIcon.Visible = false; trayIcon.Dispose(); }

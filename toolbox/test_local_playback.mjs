@@ -63,8 +63,47 @@ try {
   assert.equal(result.errors.length, 1, 'partial failure must be reported');
   assert.throws(() => collect(root, [path.join(temporary, 'missing.dat')]), /ENOENT/);
   assert.throws(() => report(root, '../bad'), /账号 ID 无效/);
+
+  // Phone NetEase replay merge: event-id idempotency, package filter, and +1 inferred first play per session.
+  const phoneEvents = [
+    { eventId: 'p1', deviceId: 'phone-1', deviceName: 'Test Phone', song: 'media:other_id__100', mediaId: 'other_id__100', packageName: 'com.netease.cloudmusic', trigger: 'repeat', startedAt: base + 10_000_000, endedAt: base + 10_200_000, listenedMs: 200_000, durationMs: 200_000, title: '歌曲,带逗号', artist: '歌手', completed: true, receivedAt: base + 10_300_000 },
+    { eventId: 'p2', deviceId: 'phone-1', deviceName: 'Test Phone', song: 'media:other_id__100', mediaId: 'other_id__100', packageName: 'com.netease.cloudmusic', trigger: 'repeat', startedAt: base + 10_200_000, endedAt: base + 10_400_000, listenedMs: 200_000, durationMs: 200_000, title: '歌曲,带逗号', artist: '歌手', completed: true, receivedAt: base + 10_300_000 },
+    { eventId: 'p2', deviceId: 'phone-1', deviceName: 'Test Phone', song: 'media:other_id__100', mediaId: 'other_id__100', packageName: 'com.netease.cloudmusic', trigger: 'repeat', startedAt: base + 10_200_000, endedAt: base + 10_400_000, listenedMs: 200_000, durationMs: 200_000, title: '歌曲,带逗号', artist: '歌手', completed: true, receivedAt: base + 10_300_000 },
+    { eventId: 'q1', deviceId: 'phone-1', deviceName: 'Test Phone', song: '100', packageName: 'com.tencent.qqmusic', trigger: 'repeat', startedAt: base + 10_600_000, endedAt: base + 10_800_000, listenedMs: 200_000, durationMs: 200_000, title: '其他媒体', artist: '歌手', completed: true, receivedAt: base + 10_900_000 }
+  ];
+  fs.writeFileSync(path.join(root, '111', 'phone-repeats.jsonl'), phoneEvents.map(event => JSON.stringify(event)).join('\n') + '\n');
+  const merged = report(root, '111');
+  assert.equal(merged.total, 9, 'desktop total stays separate');
+  assert.equal(merged.phone_total, 2, 'duplicate and other-media events are excluded');
+  assert.equal(merged.phone_sessions, 1);
+  assert.equal(merged.phone_plays, 3, 'two repeats plus one inferred first play');
+  const mergedSong = merged.songs.find(song => song.song_id === '100');
+  assert.equal(mergedSong.phone_count, 3);
+  assert.equal(mergedSong.count, 11, 'desktop count plus inferred phone passes');
+  const phoneSession = merged.sessions.find(session => session.source === 'phone');
+  assert.equal(phoneSession.count, 3);
+  assert.equal(phoneSession.repeat_count, 2);
+  assert.deepEqual(phoneSession.gaps_sec, [200]);
+  assert.ok(merged.last_phone_sync_at.length > 0);
+
+  fs.mkdirSync(path.join(root, '444'), { recursive: true });
+  fs.writeFileSync(path.join(root, '444', 'phone-repeats.jsonl'), JSON.stringify({
+    eventId: 'only-phone', deviceId: 'phone-2', deviceName: 'Phone 2', song: '', mediaId: 'other_id__900',
+    packageName: 'com.netease.cloudmusic', trigger: 'repeat',
+    startedAt: base + 20_000_000, endedAt: base + 20_180_000,
+    listenedMs: 180_000, durationMs: 180_000, title: '手机独有', artist: '歌手',
+    completed: true, receivedAt: base + 20_200_000
+  }) + '\n');
+  const phoneOnly = report(root, '444');
+  assert.equal(phoneOnly.total, 0, 'phone-only account needs no desktop database');
+  assert.equal(phoneOnly.phone_total, 1);
+  assert.equal(phoneOnly.phone_plays, 2);
+  assert.equal(phoneOnly.songs[0].song_id, '900', 'other_id media ids normalize to the numeric song id');
+  assert.equal(phoneOnly.songs[0].count, 2);
+  assert.equal(phoneOnly.sessions.length, 1);
+  assert.equal(phoneOnly.sessions[0].source, 'phone');
 } finally {
   db.close();
   fs.rmSync(temporary, { recursive: true, force: true });
 }
-console.log('PASS: WAL snapshot, deduplication, account isolation, short replays, clock rollback, pruning, row reset, metadata update and partial failures');
+console.log('PASS: WAL snapshot, deduplication, account isolation, short replays, clock rollback, pruning, row reset, metadata update, partial failures and phone NetEase replay merge');

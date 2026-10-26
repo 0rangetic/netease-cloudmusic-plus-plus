@@ -144,6 +144,24 @@ internal static class AppearanceValidation
                 slider.Value = 30;
                 Call(form, "CommitBlur");
                 Check(((Bitmap)Field(form, "wallpaperBlurred")).GetPixel(50, 180) != clearPixel, "Blur changes edge pixels");
+                var maskSlider = (TrackBar)Find(form, "BackgroundMaskSlider");
+                Check(maskSlider.Minimum == 0 && maskSlider.Maximum == 100 && maskSlider.Value == 82
+                    && Preference(form, "MaskOpacity") == null, "Mask slider spans 0-100 with 82 default and absent-setting fallback");
+                var generationProperty = type.GetProperty("WallpaperGeneration", BindingFlags.Instance | BindingFlags.NonPublic);
+                maskSlider.Value = 0;
+                Call(form, "CommitMask");
+                generationProperty.GetValue(form, null);
+                var unmaskedPixel = ((Bitmap)Field(form, "wallpaperCanvas")).GetPixel(50, 180);
+                maskSlider.Value = 100;
+                Call(form, "CommitMask");
+                generationProperty.GetValue(form, null);
+                Check(((Bitmap)Field(form, "wallpaperCanvas")).GetPixel(50, 180) != unmaskedPixel, "Mask 100 covers wallpaper with theme background");
+                Call(form, "SaveCustomAppearance", "test");
+                SetField(form, "appearance", Activator.CreateInstance(Field(form, "appearance").GetType()));
+                Call(form, "LoadCustomAppearance");
+                Check(object.Equals(Preference(form, "MaskOpacity"), 100) && maskSlider.Value == 100, "Restore saved mask opacity and slider");
+                maskSlider.Value = 82;
+                Call(form, "CommitMask");
                 bool rejected = false;
                 string invalid = Path.Combine(temporary, "invalid.png");
                 File.WriteAllText(invalid, "invalid image");
@@ -224,6 +242,7 @@ internal static class AppearanceValidation
                 }
                 Call(form, "ResetCustomAppearance");
                 Check(Field(form, "wallpaperBlurred") == null && Preference(form, "ButtonColor") == null, "Reset clears wallpaper/color");
+                Check(Preference(form, "MaskOpacity") == null && maskSlider.Value == 82, "Reset clears mask opacity");
                 Check(fitSelector.SelectedIndex == 0, "Reset returns fit selector to fill");
                 Check(Find(form, "AppTitle").Font.FontFamily.Name == "Microsoft YaHei UI", "Reset restores font");
                 Check(Find(form, "PageHost").BackColor != Color.Transparent, "Reset restores solid surfaces");

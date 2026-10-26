@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -262,7 +263,7 @@ namespace NeteaseToolbox
             base.Dispose(disposing);
         }
     }
-    internal sealed class WallpaperPanel : Panel
+    internal class WallpaperPanel : Panel
     {
         public WallpaperPanel() { DoubleBuffered = true; ResizeRedraw = true; }
         protected override void OnPaintBackground(PaintEventArgs e)
@@ -270,6 +271,42 @@ namespace NeteaseToolbox
             var form = FindForm() as ToolboxForm;
             if (BackColor == Color.Transparent && form != null && form.WallpaperEnabled) form.PaintWallpaperRegion(e.Graphics, this, e.ClipRectangle);
             else base.OnPaintBackground(e);
+        }
+    }
+
+    internal sealed class OutlineCard : WallpaperPanel
+    {
+        internal int CornerRadius = 10;
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            var form = FindForm() as ToolboxForm;
+            if (BackColor == Color.Transparent && form != null && form.WallpaperEnabled) {
+                base.OnPaintBackground(e);
+                return;
+            }
+            var previous = e.Graphics.SmoothingMode;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            try {
+                Color outside = Parent != null && Parent.BackColor.A == 255 ? Parent.BackColor : BackColor;
+                using (var background = new SolidBrush(outside)) e.Graphics.FillRectangle(background, ClientRectangle);
+                using (var path = UiDrawing.RoundedRectangle(new Rectangle(0, 0, Width - 1, Height - 1), CornerRadius))
+                using (var fill = new SolidBrush(BackColor)) e.Graphics.FillPath(fill, path);
+            }
+            finally { e.Graphics.SmoothingMode = previous; }
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (Width < 2 || Height < 2) return;
+            var form = FindForm() as ToolboxForm;
+            var previous = e.Graphics.SmoothingMode;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            try {
+                using (var path = UiDrawing.RoundedRectangle(new Rectangle(0, 0, Width - 1, Height - 1), CornerRadius))
+                using (var pen = new Pen(form != null ? form.ThemeBorder : SystemColors.ControlDark))
+                    e.Graphics.DrawPath(pen, path);
+            }
+            finally { e.Graphics.SmoothingMode = previous; }
         }
     }
 }

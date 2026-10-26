@@ -114,12 +114,17 @@ internal static class DailySigninLayoutValidation
                 Capture(form, Path.Combine(args[1], "signin-page-minimum.png"));
 
                 // Sidebar: navigation buttons and account UI must not overlap, and the
-                // sidebar must be scrollable at minimum size so every entry stays reachable.
+                // custom arrow area must scroll the content at minimum size.
                 var sidebar = Find(form, "Sidebar");
                 Check(sidebar != null, "侧栏存在");
                 var sidebarScrollable = sidebar as ScrollableControl;
-                Check(sidebarScrollable != null && sidebarScrollable.AutoScroll, "侧栏允许滚动");
-                Check(!sidebarScrollable.HorizontalScroll.Visible, "侧栏无需横向滚动即可操作导航");
+                var sidebarViewport = Find(form, "SidebarViewport");
+                var sidebarContent = Find(form, "SidebarContent");
+                var scrollUp = Find(form, "SidebarScrollUp") as Button;
+                var scrollDown = Find(form, "SidebarScrollDown") as Button;
+                Check(sidebarScrollable != null && sidebarViewport != null && sidebarContent != null
+                    && scrollUp != null && scrollDown != null, "侧栏提供独立滚动内容和上下箭头");
+                Check(!sidebarScrollable.HorizontalScroll.Visible, "侧栏没有原生横向滚动条");
                 var navButtons = new[] { "ConversionNavigation", "GenreNavigation", "ProfileNavigation",
                     "MemoryRecallNavigation", "SettingsNavigation", "AudioForwardingNavigation", "DailySigninNavigation" };
                 var accountControls = new[] { "NeteaseLoginButton", "NeteaseAccountStatus" };
@@ -136,8 +141,24 @@ internal static class DailySigninLayoutValidation
                         Check(noOverlap, "导航与账号不重叠：" + navName + " " + navControl.Bounds + " vs " + accountName + " " + accountControl.Bounds);
                     }
                 }
-                Check(sidebarScrollable.DisplayRectangle.Bottom > sidebarScrollable.ClientSize.Height,
-                    "最小窗口下侧栏内容超出可视区域，滚动可用（内容 " + sidebarScrollable.DisplayRectangle.Bottom + " > 可视 " + sidebarScrollable.ClientSize.Height + "）");
+                Check(sidebarContent.Height > sidebarViewport.ClientSize.Height,
+                    "最小窗口下侧栏内容超出可视区域，箭头滚动可用（内容 " + sidebarContent.Height + " > 可视 " + sidebarViewport.ClientSize.Height + "）");
+                Check(scrollUp.Visible && scrollDown.Visible, "侧栏溢出时显示上下箭头");
+                int sidebarTop = sidebarContent.Top;
+                scrollDown.PerformClick(); Application.DoEvents();
+                Check(sidebarContent.Top < sidebarTop, "下箭头可以向下滚动侧栏");
+                scrollUp.PerformClick(); Application.DoEvents();
+                Check(sidebarContent.Top == sidebarTop, "上箭头可以回滚侧栏");
+                var wheelFilter = type.GetField("sidebarWheelFilter", Private).GetValue(form);
+                var preFilter = wheelFilter.GetType().GetMethod("PreFilterMessage");
+                var wheelPoint = sidebar.PointToScreen(new Point(30, 120));
+                long wheelPosition = ((long)wheelPoint.Y << 16) | (long)(wheelPoint.X & 0xFFFF);
+                var wheelMessage = new Message {
+                    Msg = 0x20A, WParam = new IntPtr(-120 << 16), LParam = new IntPtr(wheelPosition)
+                };
+                object[] wheelArguments = new object[] { wheelMessage };
+                bool wheelHandled = (bool)preFilter.Invoke(wheelFilter, wheelArguments);
+                Check(wheelHandled && sidebarContent.Top < sidebarTop, "滚轮可以向下滚动侧栏");
 
                 // Task feedback must be visible in the status bar and the message log.
                 Call(form, "ReportTask", "每日签到", "部分失败", "布局校验用消息");

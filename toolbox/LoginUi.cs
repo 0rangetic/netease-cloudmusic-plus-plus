@@ -20,7 +20,7 @@ namespace NeteaseToolbox
             StyleButton(accountButton, ButtonRole.Secondary);
             accountButton.Click += delegate { ShowNeteaseLogin(); };
             accountStatus.Name = "NeteaseAccountStatus"; accountStatus.Location = new Point(18, 0);
-            accountStatus.Size = new Size(136, 58); accountStatus.ForeColor = muted;
+            accountStatus.Size = new Size(136, 50); accountStatus.ForeColor = muted;
             accountAvatar.Location = new Point(18, 0); accountAvatar.Size = new Size(36, 36); accountAvatar.SizeMode = PictureBoxSizeMode.Zoom;
             sidebar.Controls.Add(accountButton); sidebar.Controls.Add(accountStatus); sidebar.Controls.Add(accountAvatar);
             LayoutAccountUi();
@@ -30,11 +30,11 @@ namespace NeteaseToolbox
         {
             var last = navigationButtons.Count == 0 ? null : navigationButtons[navigationButtons.Count - 1];
             if (last == null) return;
-            int buttonTop = last.Bottom + 18;
+            int buttonTop = last.Bottom + 14;
             if (accountButton.Top != buttonTop) accountButton.Top = buttonTop;
             int statusTop = accountButton.Bottom + 6;
             if (accountStatus.Top != statusTop) accountStatus.Top = statusTop;
-            int avatarTop = accountStatus.Bottom + 10;
+            int avatarTop = accountStatus.Bottom + 6;
             if (accountAvatar.Top != avatarTop) accountAvatar.Top = avatarTop;
         }
         private void UpdateAccountUi()
@@ -72,15 +72,15 @@ namespace NeteaseToolbox
         {
             if (loginWindowOpen) return;
             loginWindowOpen = true;
-            using (var window = new Form { Text = "网易云账号", ClientSize = new Size(420, 540), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, Font = Font, BackColor = background, ForeColor = ink }) {
-                var instruction = new Label { Text = "打开手机网易云音乐，扫一扫并确认登录", Location = new Point(20, 18), Size = new Size(380, 30) };
-                var picture = new PictureBox { Location = new Point(60, 55), Size = new Size(300, 300), SizeMode = PictureBoxSizeMode.CenterImage, BackColor = Color.White };
-                var status = new Label { Text = "点击生成二维码", Location = new Point(20, 365), Size = new Size(380, 52) };
-                var official = Button("官方网页登录（推荐）", true); official.Location = new Point(20, 423); official.Width = 380;
-                var refresh = Button("备用接口二维码", false); refresh.Location = new Point(20, 475); refresh.Width = 164;
-                var import = Button("导入 Cookie", false); import.Location = new Point(192, 475); import.Width = 100;
-                var logout = Button("退出账号", false); logout.Location = new Point(300, 475); logout.Width = 100;
-                window.Controls.AddRange(new Control[] { instruction, picture, status, official, refresh, import, logout });
+            using (var window = new Form { Text = "网易云账号", ClientSize = new Size(420, 220), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, Font = Font, BackColor = background, ForeColor = ink }) {
+                var instruction = new Label { Name = "LoginInstructionLabel", Text = "打开手机网易云音乐，扫一扫并确认登录", Location = new Point(20, 18), Size = new Size(380, 30) };
+                var status = new Label { Name = "LoginStatusLabel", Text = "点击生成二维码", Location = new Point(20, 56), Size = new Size(380, 52) };
+                var official = Button("官方网页登录（推荐）", true); official.Name = "LoginOfficialButton"; official.Location = new Point(20, 116); official.Width = 380;
+                var refresh = Button("备用接口二维码", false); refresh.Name = "LoginQrRefreshButton"; refresh.Location = new Point(20, 162); refresh.Width = 164;
+                var import = Button("导入 Cookie", false); import.Name = "LoginCookieImportButton"; import.Location = new Point(192, 162); import.Width = 100;
+                var logout = Button("退出账号", false); logout.Name = "LoginLogoutButton"; logout.Location = new Point(300, 162); logout.Width = 100;
+                var picture = new PictureBox { Name = "LoginQrPicture", Location = new Point(60, 214), Size = new Size(300, 300), SizeMode = PictureBoxSizeMode.CenterImage, BackColor = Color.White, Visible = false };
+                window.Controls.AddRange(new Control[] { instruction, status, official, refresh, import, logout, picture });
                 bool alive = true, busy = false, pending = false;
                 int generation = 0;
                 string key = null;
@@ -131,6 +131,7 @@ namespace NeteaseToolbox
                         });
                         if (!alive || current != generation) { qr.Value.Dispose(); return; }
                         key = qr.Key; if (picture.Image != null) picture.Image.Dispose(); picture.Image = qr.Value;
+                        if (!picture.Visible) { picture.Visible = true; window.ClientSize = new Size(420, 534); FitLoginWindowOnScreen(window); }
                         status.Text = "等待手机扫码"; pending = true; timer.Start();
                     } catch (Exception ex) { if (alive) fail(ex.Message); }
                     finally { busy = false; if (alive) refresh.Enabled = import.Enabled = logout.Enabled = true; }
@@ -188,6 +189,11 @@ namespace NeteaseToolbox
                 try { window.ShowDialog(this); }
                 finally { alive = false; timer.Dispose(); if (picture.Image != null) picture.Image.Dispose(); loginWindowOpen = false; }
             }
+        }
+        private static void FitLoginWindowOnScreen(Form window)
+        {
+            var working = Screen.FromControl(window).WorkingArea;
+            if (window.Top + window.Height > working.Bottom) window.Top = Math.Max(working.Top, working.Bottom - window.Height);
         }
         private void ReportPlaybackMessage(string message)
         {

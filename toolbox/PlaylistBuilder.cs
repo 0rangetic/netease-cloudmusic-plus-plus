@@ -85,7 +85,7 @@ namespace NeteaseToolbox
                 catch (TagPlaylistPartialException ex)
                 {
                     ReportTask("标签歌单", "部分失败", "已创建歌单（ID " + ex.PlaylistId + "），成功加入 "
-                        + ex.Added + " 首；" + ex.Message);
+                        + ex.Added + " 首，失败 " + ex.Failed + " 首未加入；" + ex.Message);
                 }
                 catch (Exception ex) { ReportTask("标签歌单", "失败", ex.Message); }
             }
@@ -223,6 +223,22 @@ namespace NeteaseToolbox
             {
                 if (states.Count == 0) return;
                 states.Clear();
+                Invalidate();
+                NotifyChanged();
+            }
+
+            internal void ApplySelection(IEnumerable<string> included, IEnumerable<string> excluded)
+            {
+                var includedSet = new HashSet<string>((included ?? Enumerable.Empty<string>())
+                    .Where(value => !string.IsNullOrWhiteSpace(value)), StringComparer.Ordinal);
+                var excludedSet = new HashSet<string>((excluded ?? Enumerable.Empty<string>())
+                    .Where(value => !string.IsNullOrWhiteSpace(value)), StringComparer.Ordinal);
+                states.Clear();
+                foreach (TagPlaylistCount item in Items)
+                {
+                    if (excludedSet.Contains(item.Name)) states[item] = TagState.Excluded;
+                    else if (includedSet.Contains(item.Name)) states[item] = TagState.Included;
+                }
                 Invalidate();
                 NotifyChanged();
             }
@@ -523,8 +539,8 @@ namespace NeteaseToolbox
         {
             using (var dialog = new Form {
                 Text = "按标签生成红心歌单",
-                Size = new Size(820, 800),
-                MinimumSize = new Size(720, 700),
+                Size = new Size(880, 820),
+                MinimumSize = new Size(780, 740),
                 StartPosition = FormStartPosition.CenterParent,
                 BackColor = panel,
                 ForeColor = ink,
@@ -538,14 +554,16 @@ namespace NeteaseToolbox
                     Dock = DockStyle.Fill,
                     Padding = new Padding(18, 14, 18, 14),
                     ColumnCount = 1,
-                    RowCount = 7,
+                    RowCount = 9,
                     BackColor = panel
                 };
                 root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 root.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
+                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -554,10 +572,83 @@ namespace NeteaseToolbox
                 var title = Label("按标签生成红心歌单", 13, true, ink);
                 title.Margin = new Padding(0, 0, 0, 4);
                 root.Controls.Add(title, 0, 0);
-                var description = Label("左键勾选标签；右键标记 ×，强制排除包含该标签的歌曲。默认按勾选标签数的一半向上取整作为最低命中数。", 9, false, muted);
-                description.MaximumSize = new Size(740, 0);
+                var description = Label("左键勾选标签；右键标记 ×，强制排除包含该标签的歌曲。默认按勾选标签数的一半向上取整作为最低命中数；可先预览匹配歌曲并手动调整，再确认创建。", 9, false, muted);
+                description.MaximumSize = new Size(800, 0);
                 description.Margin = new Padding(0, 0, 0, 4);
                 root.Controls.Add(description, 0, 1);
+
+                var presetBar = new TableLayoutPanel {
+                    Dock = DockStyle.Fill,
+                    AutoSize = true,
+                    ColumnCount = 4,
+                    RowCount = 1,
+                    Margin = new Padding(0, 4, 0, 6),
+                    BackColor = panel
+                };
+                presetBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+                presetBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 176));
+                presetBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+                presetBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                presetBar.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                var presetLabel = Label("规则预设", 9, false, muted);
+                presetLabel.Margin = new Padding(0, 8, 8, 0);
+                presetBar.Controls.Add(presetLabel, 0, 0);
+                var presetCombo = new ComboBox {
+                    Name = "TagPlaylistPresetCombo",
+                    Dock = DockStyle.Fill,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    Font = UiFont(9F),
+                    Margin = new Padding(0, 3, 8, 0)
+                };
+                presetCombo.AccessibleName = "规则预设列表";
+                presetBar.Controls.Add(presetCombo, 1, 0);
+                var presetActions = new FlowLayoutPanel {
+                    AutoSize = true,
+                    Dock = DockStyle.Fill,
+                    FlowDirection = FlowDirection.LeftToRight,
+                    WrapContents = false,
+                    BackColor = panel,
+                    Margin = new Padding(0)
+                };
+                var presetLoad = Button("载入", false);
+                presetLoad.Name = "TagPlaylistPresetLoad";
+                presetLoad.Size = new Size(52, 30);
+                presetLoad.Margin = new Padding(0, 2, 4, 0);
+                StyleButton(presetLoad, ButtonRole.Ghost);
+                var presetSave = Button("保存", false);
+                presetSave.Name = "TagPlaylistPresetSave";
+                presetSave.Size = new Size(52, 30);
+                presetSave.Margin = new Padding(0, 2, 4, 0);
+                StyleButton(presetSave, ButtonRole.Ghost);
+                var presetRename = Button("重命名", false);
+                presetRename.Name = "TagPlaylistPresetRename";
+                presetRename.Size = new Size(66, 30);
+                presetRename.Margin = new Padding(0, 2, 4, 0);
+                StyleButton(presetRename, ButtonRole.Ghost);
+                var presetDelete = Button("删除", false);
+                presetDelete.Name = "TagPlaylistPresetDelete";
+                presetDelete.Size = new Size(52, 30);
+                presetDelete.Margin = new Padding(0, 2, 4, 0);
+                StyleButton(presetDelete, ButtonRole.Ghost);
+                presetActions.Controls.Add(presetLoad);
+                presetActions.Controls.Add(presetSave);
+                presetActions.Controls.Add(presetRename);
+                presetActions.Controls.Add(presetDelete);
+                presetBar.Controls.Add(presetActions, 2, 0);
+                var presetHint = Label("", 9, false, muted);
+                presetHint.Name = "TagPlaylistPresetHint";
+                presetHint.AutoSize = false;
+                presetHint.Dock = DockStyle.Fill;
+                presetHint.AutoEllipsis = true;
+                presetHint.TextAlign = ContentAlignment.MiddleLeft;
+                presetHint.Margin = new Padding(4, 6, 0, 0);
+                presetBar.Controls.Add(presetHint, 3, 0);
+                root.Controls.Add(presetBar, 0, 2);
+                tips.SetToolTip(presetCombo, "规则预设只保存筛选条件和默认歌单名，不保存歌曲 ID 或手动取消的歌曲。");
+                tips.SetToolTip(presetLoad, "载入所选预设；当前手动取消会重置。");
+                tips.SetToolTip(presetSave, "把当前标签、硬排除、最低命中数和歌单名保存为预设。");
+                tips.SetToolTip(presetRename, "重命名所选预设，不改变筛选条件。");
+                tips.SetToolTip(presetDelete, "删除所选预设；不会修改任何歌单或歌曲标签。");
 
                 var moodGroup = BuildTagPlaylistGroup("情绪（左键勾选 / 右键×）", TagPlaylistFilter.MoodCounts(snapshot.Songs), "MoodTagList");
                 var genreGroup = BuildTagPlaylistGroup("曲风（左键勾选 / 右键×）", TagPlaylistFilter.GenreCounts(snapshot.Songs), "GenreTagList");
@@ -574,7 +665,7 @@ namespace NeteaseToolbox
                 tagArea.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 tagArea.Controls.Add(moodGroup.Box, 0, 0);
                 tagArea.Controls.Add(genreGroup.Box, 1, 0);
-                root.Controls.Add(tagArea, 0, 2);
+                root.Controls.Add(tagArea, 0, 3);
 
                 var chart = new TagMatchChart(panel, ink, muted, accent, theme.Border) {
                     Name = "TagMatchChart",
@@ -583,14 +674,22 @@ namespace NeteaseToolbox
                     Margin = new Padding(0, 4, 0, 6),
                     TabStop = false
                 };
-                root.Controls.Add(chart, 0, 3);
+                root.Controls.Add(chart, 0, 4);
 
                 var summary = Label("", 9, false, muted);
                 summary.Name = "TagPlaylistSummary";
                 summary.AutoSize = true;
-                summary.MaximumSize = new Size(740, 0);
-                summary.Margin = new Padding(0, 0, 0, 4);
-                root.Controls.Add(summary, 0, 4);
+                summary.MaximumSize = new Size(800, 0);
+                summary.Margin = new Padding(0, 0, 0, 2);
+                root.Controls.Add(summary, 0, 5);
+
+                var finalCounts = Label("", 9, true, accent);
+                finalCounts.Name = "TagPlaylistFinalCounts";
+                finalCounts.AutoSize = true;
+                finalCounts.MaximumSize = new Size(800, 0);
+                finalCounts.Margin = new Padding(0, 0, 0, 6);
+                root.Controls.Add(finalCounts, 0, 6);
+                tips.SetToolTip(finalCounts, "符合规则 = 当前标签和最低命中数匹配的歌曲；手动排除 = 其中被你取消的歌曲；最终创建 = 实际提交的歌曲。");
 
                 var options = new TableLayoutPanel {
                     Dock = DockStyle.Fill,
@@ -670,7 +769,7 @@ namespace NeteaseToolbox
                     Margin = new Padding(0, 4, 0, 0)
                 };
                 options.Controls.Add(privacy, 1, 2);
-                root.Controls.Add(options, 0, 5);
+                root.Controls.Add(options, 0, 7);
 
                 var footer = new FlowLayoutPanel {
                     Dock = DockStyle.Fill,
@@ -683,18 +782,35 @@ namespace NeteaseToolbox
                 var create = Button("创建歌单", true);
                 create.Name = "TagPlaylistCreate";
                 create.Size = new Size(126, 40);
+                var previewButton = Button("预览匹配歌曲", false);
+                previewButton.Name = "TagPlaylistPreview";
+                previewButton.Size = new Size(124, 40);
+                previewButton.Margin = new Padding(0, 0, 8, 0);
                 var cancel = Button("取消", false);
                 cancel.Name = "TagPlaylistCancel";
                 cancel.Size = new Size(96, 40);
                 cancel.DialogResult = DialogResult.Cancel;
                 footer.Controls.Add(create);
+                footer.Controls.Add(previewButton);
                 footer.Controls.Add(cancel);
-                root.Controls.Add(footer, 0, 6);
+                root.Controls.Add(footer, 0, 8);
+                tips.SetToolTip(previewButton, "查看匹配歌曲、每首歌的匹配依据，并手动取消或恢复；关闭预览不会清空当前筛选。");
 
                 bool nameTouched = false;
                 bool suppressName = false;
                 bool updatingThreshold = false;
-                Action update = delegate {
+                var selection = new TagPlaylistSelectionState();
+                var latestEvaluations = new List<TagPlaylistEvaluation>();
+                var latestMatches = new List<TagPlaylistSong>();
+                int latestMinimum = 1;
+                int latestTagCount = 0;
+                int? presetMinimum = null;
+                TagPlaylistPreviewWindow preview = null;
+                PlaylistRuleStore ruleStore = null;
+                var rulePresets = new List<PlaylistRulePreset>();
+                bool rulesAvailable = true;
+
+                Action<bool> recompute = delegate(bool refreshPreview) {
                     var moods = moodGroup.List.IncludedTags;
                     var genres = genreGroup.List.IncludedTags;
                     var excludedMoods = moodGroup.List.ExcludedTags;
@@ -720,21 +836,30 @@ namespace NeteaseToolbox
                         if (matchAuto.Checked) matchThreshold.Value = recommended;
                         else
                         {
-                            int current = (int)matchThreshold.Value;
-                            matchThreshold.Value = Math.Max(1, Math.Min(tagCount, current));
+                            int desired = presetMinimum.HasValue ? presetMinimum.Value : (int)matchThreshold.Value;
+                            matchThreshold.Value = Math.Max(1, Math.Min(tagCount, desired));
                         }
                         matchThreshold.Enabled = !matchAuto.Checked;
                     }
+                    presetMinimum = null;
                     updatingThreshold = false;
 
                     int minimum = tagCount == 0 ? 1 : (int)matchThreshold.Value;
+                    latestTagCount = tagCount;
+                    latestMinimum = minimum;
+                    latestEvaluations = TagPlaylistFilter.Evaluate(snapshot.Songs, moods, genres, excludedTags, minimum);
+                    latestMatches = latestEvaluations.Where(item => item.IsMatched).Select(item => item.Song).ToList();
+                    int removedCount = selection.RemovedCount(latestMatches);
+                    int finalCount = latestMatches.Count - removedCount;
                     var counts = TagPlaylistFilter.CountAtLeast(snapshot.Songs, moods, genres, excludedTags);
-                    var matches = TagPlaylistFilter.Match(snapshot.Songs, moods, genres, excludedTags, minimum);
                     chart.SetData(counts, minimum);
                     int untagged = Math.Max(0, snapshot.Liked - snapshot.Tagged);
                     summary.Text = string.Format("红心 {0} 首 · 有标签 {1} 首 · 未分析 {2} 首不会加入", snapshot.Liked, snapshot.Tagged, untagged)
                         + (excludedCount > 0 ? " · 硬排除 " + excludedCount + " 个标签" : "")
-                        + string.Format(" · 至少命中 {0} 个：匹配 {1} 首", minimum, matches.Count);
+                        + string.Format(" · 至少命中 {0} 个：匹配 {1} 首", minimum, latestMatches.Count);
+                    finalCounts.Text = string.Format("符合规则：{0} 首；手动排除：{1} 首；最终创建：{2} 首。",
+                        latestMatches.Count, removedCount, finalCount);
+                    finalCounts.ForeColor = latestMatches.Count > 0 && finalCount == 0 ? theme.Error : accent;
                     matchHint.Text = tagCount == 0 ? "先勾选标签"
                         : matchAuto.Checked ? "（" + tagCount + " 个 → " + recommended + " 个）" : "（手动）";
                     if (!nameTouched)
@@ -743,35 +868,277 @@ namespace NeteaseToolbox
                         nameBox.Text = TagPlaylistFilter.DefaultName(moods, genres);
                         suppressName = false;
                     }
-                    create.Enabled = matches.Count > 0 && !string.IsNullOrWhiteSpace(nameBox.Text);
+                    create.Enabled = finalCount > 0 && !string.IsNullOrWhiteSpace(nameBox.Text);
+                    previewButton.Enabled = snapshot.Songs.Count > 0;
+                    if (refreshPreview && preview != null && !preview.IsDisposed)
+                        preview.UpdateData(latestEvaluations, minimum, tagCount,
+                            TagPlaylistRuleSummary(moods, genres, excludedTags, minimum));
                 };
-                moodGroup.List.TagStateChanged += delegate { if (!moodGroup.Updating && dialog.IsHandleCreated && !dialog.IsDisposed) dialog.BeginInvoke(update); };
-                genreGroup.List.TagStateChanged += delegate { if (!genreGroup.Updating && dialog.IsHandleCreated && !dialog.IsDisposed) dialog.BeginInvoke(update); };
-                moodGroup.All.Click += delegate { SetAllTagChecks(moodGroup, true, update); };
-                moodGroup.None.Click += delegate { SetAllTagChecks(moodGroup, false, update); };
-                genreGroup.All.Click += delegate { SetAllTagChecks(genreGroup, true, update); };
-                genreGroup.None.Click += delegate { SetAllTagChecks(genreGroup, false, update); };
-                matchAuto.CheckedChanged += delegate { if (!updatingThreshold) update(); };
-                matchThreshold.ValueChanged += delegate { if (!updatingThreshold) update(); };
+                moodGroup.List.TagStateChanged += delegate { if (!moodGroup.Updating && dialog.IsHandleCreated && !dialog.IsDisposed) dialog.BeginInvoke((Action)delegate { recompute(true); }); };
+                genreGroup.List.TagStateChanged += delegate { if (!genreGroup.Updating && dialog.IsHandleCreated && !dialog.IsDisposed) dialog.BeginInvoke((Action)delegate { recompute(true); }); };
+                moodGroup.All.Click += delegate { SetAllTagChecks(moodGroup, true, delegate { recompute(true); }); };
+                moodGroup.None.Click += delegate { SetAllTagChecks(moodGroup, false, delegate { recompute(true); }); };
+                genreGroup.All.Click += delegate { SetAllTagChecks(genreGroup, true, delegate { recompute(true); }); };
+                genreGroup.None.Click += delegate { SetAllTagChecks(genreGroup, false, delegate { recompute(true); }); };
+                matchAuto.CheckedChanged += delegate { if (!updatingThreshold) recompute(true); };
+                matchThreshold.ValueChanged += delegate { if (!updatingThreshold) recompute(true); };
                 nameBox.TextChanged += delegate {
                     if (suppressName) return;
                     nameTouched = true;
-                    update();
+                    recompute(false);
                 };
-                create.Click += delegate {
+
+                Action updatePresetButtons = delegate {
+                    var selectedPreset = presetCombo.SelectedItem as PlaylistRulePreset;
+                    bool hasSelection = rulesAvailable && selectedPreset != null;
+                    presetCombo.Enabled = rulesAvailable && rulePresets.Count > 0;
+                    presetLoad.Enabled = hasSelection;
+                    presetSave.Enabled = rulesAvailable;
+                    presetRename.Enabled = hasSelection;
+                    presetDelete.Enabled = hasSelection;
+                };
+                Action<string> refreshPresetCombo = delegate(string selectId) {
+                    presetCombo.BeginUpdate();
+                    try
+                    {
+                        presetCombo.Items.Clear();
+                        foreach (var preset in rulePresets.OrderBy(item => item.Name, StringComparer.CurrentCulture))
+                            presetCombo.Items.Add(preset);
+                    }
+                    finally { presetCombo.EndUpdate(); }
+                    int selectedIndex = -1;
+                    if (!string.IsNullOrEmpty(selectId))
+                    {
+                        for (int index = 0; index < presetCombo.Items.Count; index++)
+                        {
+                            var preset = presetCombo.Items[index] as PlaylistRulePreset;
+                            if (preset != null && preset.Id == selectId) { selectedIndex = index; break; }
+                        }
+                    }
+                    if (selectedIndex < 0 && presetCombo.Items.Count > 0) selectedIndex = 0;
+                    presetCombo.SelectedIndex = selectedIndex;
+                    updatePresetButtons();
+                };
+                presetCombo.SelectedIndexChanged += delegate {
+                    updatePresetButtons();
+                    var selectedPreset = presetCombo.SelectedItem as PlaylistRulePreset;
+                    if (selectedPreset != null)
+                    {
+                        string hint = "已选择「" + selectedPreset.Name + "」，点“载入”应用";
+                        presetHint.Text = hint;
+                        tips.SetToolTip(presetHint, hint);
+                    }
+                };
+                dialog.Shown += delegate {
+                    try
+                    {
+                        ruleStore = new PlaylistRuleStore(NeteaseAuth.AccountFolder("PlaylistRules"));
+                        rulePresets = ruleStore.Load();
+                        rulesAvailable = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        rulePresets = new List<PlaylistRulePreset>();
+                        rulesAvailable = false;
+                        presetHint.Text = "规则预设读取失败";
+                        tips.SetToolTip(presetHint, ex.Message);
+                        MessageBox.Show(dialog, ex.Message, "规则预设", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                    refreshPresetCombo(null);
+                    if (rulesAvailable && rulePresets.Count == 0)
+                    {
+                        presetHint.Text = "暂无预设；可保存当前规则";
+                        tips.SetToolTip(presetHint, presetHint.Text);
+                    }
+                };
+
+                presetSave.Click += delegate {
+                    if (!rulesAvailable) return;
                     var moods = moodGroup.List.IncludedTags;
                     var genres = genreGroup.List.IncludedTags;
-                    var excludedTags = moodGroup.List.ExcludedTags.Concat(genreGroup.List.ExcludedTags).ToList();
+                    if (TagPlaylistFilter.SelectedCount(moods, genres) == 0)
+                    {
+                        MessageBox.Show(dialog, "请先勾选至少一个情绪或曲风标签，再保存规则预设。", "规则预设", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return;
+                    }
+                    var selectedPreset = presetCombo.SelectedItem as PlaylistRulePreset;
+                    string initial = selectedPreset != null ? selectedPreset.Name : nameBox.Text.Trim();
+                    string presetName = PromptTagPlaylistRuleName(dialog, "保存规则预设", initial);
+                    if (presetName == null) return;
+                    var existing = rulePresets.FirstOrDefault(item => string.Equals(item.Name, presetName, StringComparison.CurrentCultureIgnoreCase));
+                    bool needsConfirmation = existing != null && (selectedPreset == null || existing.Id != selectedPreset.Id);
+                    if (needsConfirmation && MessageBox.Show(dialog, "已存在同名预设“" + presetName + "”，是否覆盖？", "规则预设",
+                            MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    var included = moods.Concat(genres).Distinct(StringComparer.Ordinal).ToList();
+                    var excluded = moodGroup.List.ExcludedTags.Concat(genreGroup.List.ExcludedTags)
+                        .Distinct(StringComparer.Ordinal).Where(tag => !included.Contains(tag)).ToArray();
+                    var next = rulePresets.Select(CopyPlaylistRulePreset).ToList();
+                    var target = existing == null ? null : next.FirstOrDefault(item => item.Id == existing.Id);
+                    if (target == null)
+                    {
+                        target = new PlaylistRulePreset { Id = Guid.NewGuid().ToString("N") };
+                        next.Add(target);
+                    }
+                    target.Name = presetName;
+                    target.Moods = moods.ToArray();
+                    target.Genres = genres.ToArray();
+                    target.ExcludedTags = excluded;
+                    target.MinimumMode = matchAuto.Checked ? "auto" : "manual";
+                    target.MinimumHits = (int)matchThreshold.Value;
+                    target.PlaylistName = nameBox.Text.Trim();
+                    target.UpdatedAt = DateTime.UtcNow.ToString("o");
+                    try
+                    {
+                        ruleStore.Save(next);
+                        rulePresets = next;
+                        refreshPresetCombo(target.Id);
+                        presetHint.Text = "已保存「" + presetName + "」";
+                        tips.SetToolTip(presetHint, presetHint.Text);
+                    }
+                    catch (Exception ex)
+                    {
+                        presetHint.Text = "预设保存失败";
+                        tips.SetToolTip(presetHint, ex.Message);
+                        MessageBox.Show(dialog, ex.Message, "规则预设", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                };
+
+                presetLoad.Click += delegate {
+                    var preset = presetCombo.SelectedItem as PlaylistRulePreset;
+                    if (!rulesAvailable || preset == null) return;
+                    selection.Clear();
+                    var presetMoods = preset.Moods ?? new string[0];
+                    var presetGenres = preset.Genres ?? new string[0];
+                    var presetExcluded = preset.ExcludedTags ?? new string[0];
+                    var catalog = new HashSet<string>(
+                        moodGroup.List.Items.Cast<TagPlaylistCount>().Select(item => item.Name)
+                            .Concat(genreGroup.List.Items.Cast<TagPlaylistCount>().Select(item => item.Name)),
+                        StringComparer.Ordinal);
+                    var missing = presetMoods.Concat(presetGenres).Concat(presetExcluded)
+                        .Where(tag => !string.IsNullOrWhiteSpace(tag) && !catalog.Contains(tag))
+                        .Distinct(StringComparer.Ordinal).ToList();
+                    moodGroup.Updating = true;
+                    genreGroup.Updating = true;
+                    try
+                    {
+                        moodGroup.List.ApplySelection(presetMoods, presetExcluded);
+                        genreGroup.List.ApplySelection(presetGenres, presetExcluded);
+                    }
+                    finally
+                    {
+                        moodGroup.Updating = false;
+                        genreGroup.Updating = false;
+                    }
+                    updatingThreshold = true;
+                    matchAuto.Checked = !string.Equals(preset.MinimumMode, "manual", StringComparison.OrdinalIgnoreCase);
+                    presetMinimum = preset.MinimumHits;
+                    updatingThreshold = false;
+                    nameTouched = true;
+                    suppressName = true;
+                    nameBox.Text = string.IsNullOrWhiteSpace(preset.PlaylistName) ? preset.Name : preset.PlaylistName;
+                    suppressName = false;
+                    recompute(true);
+                    string detail = "已载入「" + preset.Name + "」，手动调整已重置"
+                        + (missing.Count == 0 ? "" : "；忽略 " + missing.Count + " 个当前不存在的标签");
+                    presetHint.Text = detail;
+                    tips.SetToolTip(presetHint, missing.Count == 0 ? detail
+                        : detail + Environment.NewLine + "当前标签列表不存在：" + string.Join("、", missing));
+                };
+
+                presetRename.Click += delegate {
+                    var preset = presetCombo.SelectedItem as PlaylistRulePreset;
+                    if (!rulesAvailable || preset == null) return;
+                    string newName = PromptTagPlaylistRuleName(dialog, "重命名规则预设", preset.Name);
+                    if (newName == null || newName == preset.Name) return;
+                    if (rulePresets.Any(item => item.Id != preset.Id && string.Equals(item.Name, newName, StringComparison.CurrentCultureIgnoreCase)))
+                    {
+                        MessageBox.Show(dialog, "已存在同名预设“" + newName + "”。", "规则预设", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return;
+                    }
+                    var next = rulePresets.Select(CopyPlaylistRulePreset).ToList();
+                    var target = next.First(item => item.Id == preset.Id);
+                    target.Name = newName;
+                    target.UpdatedAt = DateTime.UtcNow.ToString("o");
+                    try
+                    {
+                        ruleStore.Save(next);
+                        rulePresets = next;
+                        refreshPresetCombo(target.Id);
+                        presetHint.Text = "已重命名为「" + newName + "」";
+                        tips.SetToolTip(presetHint, presetHint.Text);
+                    }
+                    catch (Exception ex)
+                    {
+                        presetHint.Text = "预设重命名失败";
+                        tips.SetToolTip(presetHint, ex.Message);
+                        MessageBox.Show(dialog, ex.Message, "规则预设", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                };
+
+                presetDelete.Click += delegate {
+                    var preset = presetCombo.SelectedItem as PlaylistRulePreset;
+                    if (!rulesAvailable || preset == null) return;
+                    if (MessageBox.Show(dialog, "删除规则预设“" + preset.Name + "”？" + Environment.NewLine + Environment.NewLine
+                            + "只删除预设，不会修改任何歌单或歌曲标签。", "规则预设",
+                            MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    var next = rulePresets.Where(item => item.Id != preset.Id).ToList();
+                    try
+                    {
+                        ruleStore.Save(next);
+                        rulePresets = next;
+                        refreshPresetCombo(null);
+                        presetHint.Text = "已删除「" + preset.Name + "」";
+                        tips.SetToolTip(presetHint, presetHint.Text);
+                    }
+                    catch (Exception ex)
+                    {
+                        presetHint.Text = "预设删除失败";
+                        tips.SetToolTip(presetHint, ex.Message);
+                        MessageBox.Show(dialog, ex.Message, "规则预设", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                };
+
+                previewButton.Click += delegate {
+                    if (preview != null && !preview.IsDisposed)
+                    {
+                        preview.Activate();
+                        preview.BringToFront();
+                        return;
+                    }
+                    preview = new TagPlaylistPreviewWindow(this, selection);
+                    preview.SelectionChanged += delegate {
+                        if (dialog.IsHandleCreated && !dialog.IsDisposed)
+                            dialog.BeginInvoke((Action)delegate { recompute(false); });
+                    };
+                    preview.FormClosed += delegate { preview = null; };
+                    preview.UpdateData(latestEvaluations, latestMinimum, latestTagCount,
+                        TagPlaylistRuleSummary(moodGroup.List.IncludedTags, genreGroup.List.IncludedTags,
+                            moodGroup.List.ExcludedTags.Concat(genreGroup.List.ExcludedTags).ToList(), latestMinimum));
+                    preview.PlaceBeside(dialog);
+                    preview.Show(dialog);
+                    preview.BringToFront();
+                };
+                dialog.FormClosed += delegate { if (preview != null && !preview.IsDisposed) preview.Close(); };
+
+                create.Click += delegate {
+                    recompute(false);
+                    var moods = moodGroup.List.IncludedTags;
+                    var genres = genreGroup.List.IncludedTags;
                     if (TagPlaylistFilter.SelectedCount(moods, genres) == 0)
                     {
                         MessageBox.Show(dialog, "请至少勾选一个情绪或曲风标签。", "标签歌单", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
-                    int minimum = (int)matchThreshold.Value;
-                    var matches = TagPlaylistFilter.Match(snapshot.Songs, moods, genres, excludedTags, minimum);
-                    if (matches.Count == 0)
+                    if (latestMatches.Count == 0)
                     {
                         MessageBox.Show(dialog, "当前筛选没有匹配的红心歌曲，请调整标签或最低命中数。", "标签歌单", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return;
+                    }
+                    int removedCount = selection.RemovedCount(latestMatches);
+                    var finalSongs = selection.FinalSongs(latestMatches);
+                    if (finalSongs.Count == 0)
+                    {
+                        MessageBox.Show(dialog, "所有匹配歌曲都被手动排除，不能创建空歌单。请恢复至少一首歌曲。", "标签歌单", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
                     var name = nameBox.Text.Trim();
@@ -781,21 +1148,243 @@ namespace NeteaseToolbox
                         nameBox.Focus();
                         return;
                     }
+                    var included = moods.Concat(genres).Distinct(StringComparer.Ordinal).ToList();
+                    var excluded = moodGroup.List.ExcludedTags.Concat(genreGroup.List.ExcludedTags)
+                        .Where(tag => !included.Contains(tag)).Distinct(StringComparer.Ordinal).ToList();
+                    if (!ConfirmTagPlaylistCreation(dialog, name, privacy.Checked, included, excluded,
+                            latestMinimum, latestMatches.Count, removedCount, finalSongs.Count)) return;
                     result = new TagPlaylistDialogResult {
                         Name = name,
                         IsPrivate = privacy.Checked,
-                        SongIds = matches.Select(song => song.SongId).ToList()
+                        SongIds = finalSongs.Select(song => song.SongId).ToList()
                     };
                     dialog.DialogResult = DialogResult.OK;
                     dialog.Close();
                 };
                 dialog.AcceptButton = create;
                 dialog.CancelButton = cancel;
-                update();
+                recompute(true);
                 PrepareThemedDialog(dialog);
                 if (dialog.ShowDialog(this) != DialogResult.OK) return null;
                 return result;
             }
+        }
+
+        private string PromptTagPlaylistRuleName(Form owner, string title, string initial)
+        {
+            using (var dialog = new Form {
+                Text = title,
+                Size = new Size(440, 210),
+                MinimumSize = new Size(400, 200),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                ShowInTaskbar = false,
+                BackColor = panel,
+                ForeColor = ink,
+                Font = UiFont(9F),
+                AutoScaleMode = AutoScaleMode.Dpi,
+                AutoScaleDimensions = new SizeF(96F, 96F)
+            })
+            {
+                var root = new TableLayoutPanel {
+                    Dock = DockStyle.Fill,
+                    Padding = new Padding(18, 14, 18, 14),
+                    ColumnCount = 1,
+                    RowCount = 4,
+                    BackColor = panel
+                };
+                root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                dialog.Controls.Add(root);
+                var label = Label("预设名称", 9, false, muted);
+                label.Margin = new Padding(0, 0, 0, 4);
+                root.Controls.Add(label, 0, 0);
+                var input = new TextBox {
+                    Name = "TagPlaylistPresetNameInput",
+                    Dock = DockStyle.Top,
+                    MaxLength = 30,
+                    Font = UiFont(10F),
+                    Margin = new Padding(0, 0, 0, 6)
+                };
+                string text = initial ?? "";
+                input.Text = text.Length > 30 ? text.Substring(0, 30) : text;
+                root.Controls.Add(input, 0, 1);
+                var hint = Label("最多 30 个字符；只保存筛选条件和默认歌单名。", 9, false, muted);
+                hint.AutoSize = true;
+                hint.MaximumSize = new Size(380, 0);
+                hint.Margin = new Padding(0, 4, 0, 0);
+                root.Controls.Add(hint, 0, 2);
+                var footer = new FlowLayoutPanel {
+                    Dock = DockStyle.Fill,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    WrapContents = false,
+                    AutoSize = true,
+                    BackColor = panel,
+                    Margin = new Padding(0)
+                };
+                var ok = Button("确定", true);
+                ok.Name = "TagPlaylistPresetNameOk";
+                ok.Size = new Size(92, 36);
+                ok.DialogResult = DialogResult.OK;
+                var cancel = Button("取消", false);
+                cancel.Name = "TagPlaylistPresetNameCancel";
+                cancel.Size = new Size(86, 36);
+                cancel.DialogResult = DialogResult.Cancel;
+                footer.Controls.Add(ok);
+                footer.Controls.Add(cancel);
+                root.Controls.Add(footer, 0, 3);
+                dialog.AcceptButton = ok;
+                dialog.CancelButton = cancel;
+                dialog.Shown += delegate { input.Focus(); input.SelectAll(); };
+                PrepareThemedDialog(dialog);
+                if (dialog.ShowDialog(owner) != DialogResult.OK) return null;
+                string name = input.Text.Trim();
+                if (name.Length == 0)
+                {
+                    MessageBox.Show(owner, "预设名称不能为空。", "规则预设", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return null;
+                }
+                return name;
+            }
+        }
+
+        private bool ConfirmTagPlaylistCreation(Form owner, string name, bool isPrivate,
+            List<string> includedTags, List<string> excludedTags, int minimumHits,
+            int matchedCount, int removedCount, int finalCount)
+        {
+            using (var dialog = new Form {
+                Text = "确认创建歌单",
+                Size = new Size(600, 530),
+                MinimumSize = new Size(540, 460),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                ShowInTaskbar = false,
+                BackColor = panel,
+                ForeColor = ink,
+                Font = UiFont(9F),
+                AutoScaleMode = AutoScaleMode.Dpi,
+                AutoScaleDimensions = new SizeF(96F, 96F)
+            })
+            {
+                var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = panel };
+                var root = new TableLayoutPanel {
+                    Dock = DockStyle.Top,
+                    AutoSize = true,
+                    Padding = new Padding(18, 14, 18, 14),
+                    ColumnCount = 2,
+                    RowCount = 11,
+                    BackColor = panel
+                };
+                root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
+                root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                for (int index = 0; index < 11; index++) root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                scroll.Controls.Add(root);
+                dialog.Controls.Add(scroll);
+                int row = 0;
+                var title = Label("创建歌单前确认", 13, true, ink);
+                title.Margin = new Padding(0, 0, 0, 8);
+                root.Controls.Add(title, 0, row);
+                root.SetColumnSpan(title, 2);
+                row++;
+                Action<string, string, string, Color, bool> addRow = delegate(string labelText, string valueText, string controlName, Color valueColor, bool bold) {
+                    var label = Label(labelText, 9, false, muted);
+                    label.Margin = new Padding(0, 4, 8, 4);
+                    root.Controls.Add(label, 0, row);
+                    var value = Label(valueText, 9, bold, valueColor);
+                    value.Name = controlName;
+                    value.AutoSize = true;
+                    value.MaximumSize = new Size(420, 0);
+                    value.Margin = new Padding(0, 4, 0, 4);
+                    root.Controls.Add(value, 1, row);
+                    row++;
+                };
+                addRow("歌单名称", name, "TagPlaylistConfirmName", ink, true);
+                addRow("可见性", isPrivate ? "私密（仅自己可见）" : "公开", "TagPlaylistConfirmPrivacy", ink, false);
+                addRow("筛选标签", includedTags == null || includedTags.Count == 0 ? "无" : string.Join("、", includedTags),
+                    "TagPlaylistConfirmTags", ink, false);
+                addRow("硬性排除", excludedTags == null || excludedTags.Count == 0 ? "无" : string.Join("、", excludedTags),
+                    "TagPlaylistConfirmExcluded", ink, false);
+                addRow("最低命中", minimumHits + " 个", "TagPlaylistConfirmMinimum", ink, false);
+                addRow("符合规则", matchedCount + " 首", "TagPlaylistConfirmMatched", ink, false);
+                addRow("手动排除", removedCount + " 首", "TagPlaylistConfirmRemoved", ink, false);
+                addRow("最终加入", finalCount + " 首", "TagPlaylistConfirmFinal",
+                    finalCount > 0 ? accent : theme.Error, true);
+                var note = Label("确认后只提交“最终加入”的歌曲；不会修改红心歌单或歌曲标签。", 9, false, muted);
+                note.AutoSize = true;
+                note.MaximumSize = new Size(520, 0);
+                note.Margin = new Padding(0, 8, 0, 8);
+                root.Controls.Add(note, 0, row);
+                root.SetColumnSpan(note, 2);
+                row++;
+                var footer = new FlowLayoutPanel {
+                    Dock = DockStyle.Fill,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    WrapContents = false,
+                    AutoSize = true,
+                    BackColor = panel,
+                    Margin = new Padding(0)
+                };
+                var confirm = Button("创建歌单", true);
+                confirm.Name = "TagPlaylistConfirmCreate";
+                confirm.Size = new Size(126, 40);
+                confirm.DialogResult = DialogResult.OK;
+                confirm.Enabled = finalCount > 0;
+                var back = Button("返回修改", false);
+                back.Name = "TagPlaylistConfirmBack";
+                back.Size = new Size(110, 40);
+                back.DialogResult = DialogResult.Cancel;
+                footer.Controls.Add(confirm);
+                footer.Controls.Add(back);
+                root.Controls.Add(footer, 0, row);
+                root.SetColumnSpan(footer, 2);
+                dialog.AcceptButton = confirm;
+                dialog.CancelButton = back;
+                PrepareThemedDialog(dialog);
+                return dialog.ShowDialog(owner) == DialogResult.OK;
+            }
+        }
+
+        private static string TagPlaylistRuleSummary(IEnumerable<string> moods, IEnumerable<string> genres,
+            IEnumerable<string> excludedTags, int minimumHits)
+        {
+            var included = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            if (moods != null)
+                foreach (var tag in moods)
+                    if (!string.IsNullOrWhiteSpace(tag) && seen.Add(tag)) included.Add(tag);
+            if (genres != null)
+                foreach (var tag in genres)
+                    if (!string.IsNullOrWhiteSpace(tag) && seen.Add(tag)) included.Add(tag);
+            var excluded = new List<string>();
+            seen.Clear();
+            if (excludedTags != null)
+                foreach (var tag in excludedTags)
+                    if (!string.IsNullOrWhiteSpace(tag) && seen.Add(tag)) excluded.Add(tag);
+            return "勾选：" + (included.Count == 0 ? "无" : string.Join("、", included))
+                + " · 硬排除：" + (excluded.Count == 0 ? "无" : string.Join("、", excluded))
+                + " · 最低命中：" + minimumHits + " 个";
+        }
+
+        private static PlaylistRulePreset CopyPlaylistRulePreset(PlaylistRulePreset source)
+        {
+            return new PlaylistRulePreset {
+                Id = source.Id,
+                Name = source.Name,
+                Moods = source.Moods == null ? new string[0] : (string[])source.Moods.Clone(),
+                Genres = source.Genres == null ? new string[0] : (string[])source.Genres.Clone(),
+                ExcludedTags = source.ExcludedTags == null ? new string[0] : (string[])source.ExcludedTags.Clone(),
+                MinimumMode = source.MinimumMode,
+                MinimumHits = source.MinimumHits,
+                PlaylistName = source.PlaylistName,
+                UpdatedAt = source.UpdatedAt
+            };
         }
     }
 
@@ -809,11 +1398,13 @@ namespace NeteaseToolbox
     {
         internal readonly string PlaylistId;
         internal readonly int Added;
+        internal readonly int Failed;
 
-        internal TagPlaylistPartialException(string playlistId, int added, string message) : base(message)
+        internal TagPlaylistPartialException(string playlistId, int added, int failed, string message) : base(message)
         {
             PlaylistId = playlistId;
             Added = added;
+            Failed = failed;
         }
     }
 
@@ -869,7 +1460,7 @@ namespace NeteaseToolbox
             }
             catch (Exception ex)
             {
-                throw new TagPlaylistPartialException(playlistId, added, ex.Message);
+                throw new TagPlaylistPartialException(playlistId, added, ids.Count - added, ex.Message);
             }
             return new TagPlaylistCreationResult { PlaylistId = playlistId, Added = added };
         }

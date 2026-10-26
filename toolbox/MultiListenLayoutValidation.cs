@@ -114,12 +114,20 @@ internal static class MultiListenLayoutValidation
                 Capture(form, Path.Combine(args[1], "multi-listen-page-minimum.png"));
 
                 // Sidebar: navigation buttons and account UI must not overlap, and the
-                // sidebar must be scrollable at minimum size so every entry stays reachable.
+                // custom arrow area must expose the overflowing content at minimum size.
                 var sidebar = Find(form, "Sidebar");
                 Check(sidebar != null, "侧栏存在");
                 var sidebarScrollable = sidebar as ScrollableControl;
-                Check(sidebarScrollable != null && sidebarScrollable.AutoScroll, "侧栏允许滚动");
-                Check(!sidebarScrollable.HorizontalScroll.Visible, "侧栏无需横向滚动即可操作导航");
+                var sidebarViewport = Find(form, "SidebarViewport");
+                var sidebarContent = Find(form, "SidebarContent");
+                var scrollUp = Find(form, "SidebarScrollUp") as Button;
+                var scrollDown = Find(form, "SidebarScrollDown") as Button;
+                Check(sidebarScrollable != null && sidebarViewport != null && sidebarContent != null
+                    && scrollUp != null && scrollDown != null, "侧栏提供独立滚动内容和上下箭头");
+                Check(!sidebarScrollable.HorizontalScroll.Visible, "侧栏没有原生横向滚动条");
+                Check(sidebarContent.Height > sidebarViewport.ClientSize.Height,
+                    "最小窗口下侧栏内容超出可视区域（内容 " + sidebarContent.Height + " > 可视 " + sidebarViewport.ClientSize.Height + "）");
+                Check(scrollUp.Visible && scrollDown.Visible, "侧栏溢出时显示上下箭头");
                 var navButtons = new[] { "ConversionNavigation", "GenreNavigation", "ProfileNavigation",
                     "MemoryRecallNavigation", "SettingsNavigation", "AudioForwardingNavigation", "DailySigninNavigation", "MultiListenNavigation" };
                 var accountControls = new[] { "NeteaseLoginButton", "NeteaseAccountStatus" };

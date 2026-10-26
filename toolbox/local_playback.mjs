@@ -116,6 +116,103 @@ export function saveEvents(root, source, events) {
 }
 
 const time = ts => new Date(ts).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' });
+const phonePackage = 'com.netease.cloudmusic';
+
+function phoneSongKey(song, mediaId) {
+  for (const raw of [song, mediaId, String(song || '').replace(/^media:/, '')]) {
+    const value = String(raw || '').trim();
+    if (/^\d+$/.test(value)) return value;
+    const match = /^other_id__(\d+)$/.exec(value);
+    if (match) return match[1];
+  }
+  return String(song || '').trim();
+}
+
+export function readPhoneEvents(root, uid) {
+  if (uid) accountDirectory(root, uid);
+  const file = path.join(accountDirectory(root, uid), 'phone-repeats.jsonl');
+  if (!fs.existsSync(file)) return [];
+  let text;
+  try { text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''); } catch { return []; }
+  const seen = new Set(), events = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let event;
+    try { event = JSON.parse(line); } catch { continue; }
+    if (!event || event.packageName !== phonePackage || event.trigger !== 'repeat') continue;
+    if (!event.eventId || seen.has(event.eventId)) continue;
+    const startedAt = Number(event.startedAt), endedAt = Number(event.endedAt);
+    const listenedMs = Number(event.listenedMs || 0), durationMs = Number(event.durationMs || 0);
+    if (!Number.isSafeInteger(startedAt) || startedAt <= 0) continue;
+    if (!Number.isSafeInteger(endedAt) || endedAt < startedAt) continue;
+    if (!Number.isFinite(listenedMs) || listenedMs < 0 || !Number.isFinite(durationMs) || durationMs < 0) continue;
+    const song = phoneSongKey(event.song, event.mediaId);
+    if (!song) continue;
+    seen.add(event.eventId);
+    events.push({
+      ...event, song, startedAt, endedAt, span: durationMs / 1000, seconds: listenedMs / 1000,
+      device: String(event.deviceName || '手机'), receivedAt: Number(event.receivedAt || 0)
+    });
+  }
+  return events.sort((a, b) => a.startedAt - b.startedAt || a.endedAt - b.endedAt);
+}
+
+export function summarizePhoneSessions(events) {
+  const sessions = [];
+  const groups = Map.groupBy(events, e => `${e.deviceId || ''}|${e.song}`);
+  for (const group of groups.values()) {
+    let current;
+    for (const event of group) {
+      const gap = current ? (event.startedAt - current.events.at(-1).startedAt) / 1000 : -1;
+      const span = event.span || (current && current.events.at(-1).span) || 240;
+      // Phone events are repeat passes only; the first play is inferred with +1 per session.
+      if (current && gap >= 0 && gap <= span * 1.5 + 25) {
+        current.events.push(event); current.gaps_sec.push(Math.round(gap * 10) / 10);
+      } else {
+        current = { song_id: event.song, events: [event], gaps_sec: [] };
+        sessions.push(current);
+      }
+    }
+  }
+  return sessions.map(session => {
+    const first = session.events[0], last = session.events.at(-1);
+    const repeatCount = session.events.length;
+    return {
+      song_id: session.song_id, name: first.title || session.song_id, artists: first.artist || '',
+      source: 'phone', device: first.device || '手机', count: repeatCount + 1, repeat_count: repeatCount,
+      assumed_first: true, started_at: time(first.startedAt), ended_at: time(last.endedAt),
+      gaps_sec: session.gaps_sec, estimated_span: session.events.some(event => !event.span),
+      evidence: session.events.map(event => ({ row_id: '-', time: time(event.startedAt), seconds: event.seconds, source: '手机重播' }))
+    };
+  });
+}
+
+export function mergePhone(desktop, phoneEvents) {
+  const phoneSessions = summarizePhoneSessions(phoneEvents);
+  const songs = new Map(desktop.songs.map(song => [song.song_id, { ...song, phone_count: Number(song.phone_count || 0) }]));
+  for (const session of phoneSessions) {
+    let song = songs.get(session.song_id);
+    if (!song) {
+      song = { song_id: session.song_id, name: session.name, artists: session.artists, count: 0, phone_count: 0, first: session.started_at, last: session.ended_at };
+      songs.set(session.song_id, song);
+    }
+    song.count += session.count;
+    song.phone_count += session.count;
+    if (session.started_at < song.first) song.first = session.started_at;
+    if (session.ended_at > song.last) song.last = session.ended_at;
+  }
+  const lastPhoneSync = phoneEvents.reduce((max, event) => Math.max(max, event.receivedAt || event.endedAt || event.startedAt), 0);
+  return {
+    ...desktop,
+    songs: [...songs.values()].sort((a, b) => b.count - a.count || String(b.last).localeCompare(String(a.last))),
+    sessions: [...desktop.sessions, ...phoneSessions].sort((a, b) => b.count - a.count || a.started_at.localeCompare(b.started_at)),
+    phone_total: phoneEvents.length,
+    phone_sessions: phoneSessions.length,
+    phone_plays: phoneSessions.reduce((sum, session) => sum + session.count, 0),
+    last_phone_sync_at: lastPhoneSync > 0 ? time(lastPhoneSync) : ''
+  };
+}
+
 export function summarizeEvents(events) {
   const songs = new Map(), sessions = [];
   const streams = Map.groupBy(events, e => `${e.client}:${e.table_name}`);
@@ -140,28 +237,41 @@ export function summarizeEvents(events) {
   }
   return {
     total: events.length,
-    songs: [...songs.values()].sort((a,b) => b.count-a.count || b.last-a.last).map(s => ({ ...s, first: time(s.first), last: time(s.last) })),
+    songs: [...songs.values()].sort((a,b) => b.count-a.count || b.last-a.last).map(s => ({ ...s, first: time(s.first), last: time(s.last), phone_count: 0 })),
     sessions: sessions.filter(s => s.events.length >= 2).map(s => ({
       song_id: s.song_id, name: songs.get(s.song_id).name, artists: songs.get(s.song_id).artists,
-      count: s.events.length, started_at: time(s.events[0].ts), ended_at: time(s.events.at(-1).ts), gaps_sec: s.gaps_sec,
+      source: 'desktop', count: s.events.length, started_at: time(s.events[0].ts), ended_at: time(s.events.at(-1).ts), gaps_sec: s.gaps_sec,
       estimated_span: s.events.some(e => !e.span),
       evidence: s.events.map(e => ({ row_id: e.row_id, time: time(e.ts), seconds: e.seconds, source: e.source })),
-    })).sort((a,b) => b.count-a.count || b.started_at.localeCompare(a.started_at)),
+    })).sort((a,b) => b.count-a.count || a.started_at.localeCompare(b.started_at)),
   };
 }
 
 export function report(root, uid) {
   if (uid) accountDirectory(root, uid);
-  const accounts = fs.existsSync(root) ? fs.readdirSync(root).filter(id => (id === 'unknown' || /^\d+$/.test(id)) && fs.existsSync(path.join(root, id, 'plays.sqlite3'))).sort() : [];
+  const accounts = fs.existsSync(root) ? fs.readdirSync(root).filter(id => {
+    if (id !== 'unknown' && !/^\d+$/.test(id)) return false;
+    const directory = path.join(root, id);
+    try {
+      if (!fs.statSync(directory).isDirectory()) return false;
+      return fs.existsSync(path.join(directory, 'plays.sqlite3')) || fs.existsSync(path.join(directory, 'phone-repeats.jsonl'));
+    } catch { return false; }
+  }).sort() : [];
   if (uid && !accounts.includes(uid)) accounts.push(uid);
   const selected = uid || accounts[0] || '';
-  if (!selected) return { accounts, uid: '', total: 0, songs: [], sessions: [], last_collected_at: '' };
-  if (!fs.existsSync(path.join(accountDirectory(root, selected), 'plays.sqlite3'))) return { accounts, uid: selected, total: 0, songs: [], sessions: [], last_collected_at: '' };
-  const db = new DatabaseSync(path.join(accountDirectory(root, selected), 'plays.sqlite3'), { readOnly: true });
+  if (!selected) return { accounts, uid: '', total: 0, songs: [], sessions: [], phone_total: 0, phone_sessions: 0, phone_plays: 0, last_phone_sync_at: '', last_collected_at: '' };
+  const directory = accountDirectory(root, selected);
+  const desktopPath = path.join(directory, 'plays.sqlite3');
+  if (!fs.existsSync(desktopPath)) {
+    const phone = readPhoneEvents(root, selected);
+    return { accounts, uid: selected, ...mergePhone({ total: 0, songs: [], sessions: [] }, phone), last_collected_at: '' };
+  }
+  const db = new DatabaseSync(desktopPath, { readOnly: true });
   try {
     const events = db.prepare('SELECT * FROM events ORDER BY seq').all();
     const last = db.prepare("SELECT value FROM state WHERE key='last_collected_at'").get();
-    return { accounts, uid: selected, ...summarizeEvents(events), last_collected_at: last ? time(Number(last.value)) : '' };
+    const phone = readPhoneEvents(root, selected);
+    return { accounts, uid: selected, ...mergePhone(summarizeEvents(events), phone), last_collected_at: last ? time(Number(last.value)) : '' };
   } finally { db.close(); }
 }
 

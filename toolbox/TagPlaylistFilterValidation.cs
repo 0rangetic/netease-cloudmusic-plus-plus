@@ -75,6 +75,96 @@ internal static class TagPlaylistFilterValidation
             "excluded mood removes songs before counting included genres");
         Check(TagPlaylistFilter.DefaultName(new[] { "治愈", "放松" }, new[] { "流行" }) == "红心 · 治愈 · 放松 · 流行", "default name lists selected tags");
         Check(TagPlaylistFilter.DefaultName(new string[0], new string[0]) == "红心 · 标签歌单", "default name fallback");
+
+        var evaluationSongs = new List<TagPlaylistSong> {
+            Song("10", "治愈,放松", "流行"),
+            Song("11", "悲伤", "摇滚"),
+            Song("12", null, null),
+            Song("13", "治愈", "治愈"),
+            Song("14", "治愈", "摇滚")
+        };
+        var evaluation = TagPlaylistFilter.Evaluate(evaluationSongs, new[] { "治愈", "放松" }, null, null, 2);
+        Check(evaluation.Count == 5, "evaluation keeps every song");
+        Check(evaluation[0].IsMatched && evaluation[0].HitCount == 2
+            && evaluation[0].HitTags.SequenceEqual(new[] { "治愈", "放松" }),
+            "evaluation lists matching tags in song order");
+        Check(evaluation[1].State == TagPlaylistMatchState.BelowMinimum && evaluation[1].HitCount == 0,
+            "evaluation reports songs below the minimum");
+        Check(evaluation[2].State == TagPlaylistMatchState.NoTags,
+            "evaluation separates untagged songs");
+        Check(evaluation[3].State == TagPlaylistMatchState.BelowMinimum && evaluation[3].HitCount == 1,
+            "duplicate tags across moods and genres count once");
+        Check(evaluation[0].StateText == "符合规则" && evaluation[1].StateText == "未达最低命中"
+            && evaluation[2].StateText == "尚未分析",
+            "evaluation states have distinct labels");
+
+        var excludedEvaluation = TagPlaylistFilter.Evaluate(evaluationSongs,
+            new[] { "治愈", "放松" }, null, new[] { "摇滚" }, 2);
+        Check(excludedEvaluation[1].State == TagPlaylistMatchState.HardExcluded
+            && excludedEvaluation[1].ExcludedTags.SequenceEqual(new[] { "摇滚" }),
+            "hard exclusion is reported before hit counting");
+        Check(excludedEvaluation[4].State == TagPlaylistMatchState.HardExcluded,
+            "hard exclusion wins over a matching included tag");
+
+        var noSelectionEvaluation = TagPlaylistFilter.Evaluate(evaluationSongs,
+            new string[0], new string[0], null, 1);
+        Check(noSelectionEvaluation.All(item => item.State == TagPlaylistMatchState.NoSelection),
+            "evaluation reports a missing selection");
+        var clampedEvaluation = TagPlaylistFilter.Evaluate(evaluationSongs, new[] { "治愈" }, null, null, 5);
+        Check(clampedEvaluation.All(item => item.MinimumHits == 1),
+            "evaluation clamps the minimum to the selected tag count");
+
+        var matchedByEvaluation = TagPlaylistFilter.Match(evaluationSongs, new[] { "治愈", "放松" }, null, null, 2);
+        Check(matchedByEvaluation.Select(song => song.SongId)
+            .SequenceEqual(evaluation.Where(item => item.IsMatched).Select(item => item.Song.SongId)),
+            "Match reuses the same evaluation used by the preview");
+
+        Check(TagPlaylistFilter.Explain(evaluation[0]).Contains("命中标签：治愈、放松"),
+            "explanation lists matched filter tags");
+        Check(TagPlaylistFilter.Explain(evaluation[1]).Contains("最低命中：2 个"),
+            "explanation shows the effective minimum");
+        Check(TagPlaylistFilter.Explain(excludedEvaluation[1]).Contains("硬性排除命中：摇滚"),
+            "explanation explains a hard exclusion");
+        Check(TagPlaylistFilter.Explain(noSelectionEvaluation[0]).Contains("尚未勾选"),
+            "explanation handles an empty selection");
+
+        var selectionMatches = TagPlaylistFilter.Match(songs, new[] { "治愈", "放松" }, null, null, 1);
+        var selection = new TagPlaylistSelectionState();
+        Check(selection.RemovedCount(selectionMatches) == 0 && selection.FinalSongs(selectionMatches).Count == 3,
+            "every matching song is selected by default");
+        selection.SetRemoved("1", true);
+        selection.SetRemoved("3", true);
+        Check(selection.RemovedCount(selectionMatches) == 2 && selection.FinalSongs(selectionMatches).Count == 1
+            && selection.FinalSongs(selectionMatches)[0].SongId == "5",
+            "manual removals reduce the final selection");
+        var noHealingMatches = TagPlaylistFilter.Match(songs, new[] { "治愈", "放松" }, null, new[] { "治愈" }, 1);
+        Check(noHealingMatches.Count == 0 && selection.RemovedCount(noHealingMatches) == 0,
+            "manual removals only count while the song still matches");
+        Check(selection.RemovedCount(selectionMatches) == 2,
+            "manual removals are remembered by song id after the filter changes");
+        selection.SetRemoved("1", false);
+        Check(selection.RemovedCount(selectionMatches) == 1, "restoring a song removes its manual exclusion");
+        selection.RestoreAll();
+        Check(selection.RemovedCount(selectionMatches) == 0, "restore all clears manual exclusions");
+        selection.RemoveAll(selectionMatches);
+        Check(selection.RemovedCount(selectionMatches) == 3 && selection.FinalSongs(selectionMatches).Count == 0,
+            "remove all clears the final selection");
+        selection.Clear();
+        Check(selection.FinalSongs(selectionMatches).Count == 3, "clearing the session restores the default selection");
+
+        var manySongs = Enumerable.Range(1, 80)
+            .Select(index => Song("s" + index, index % 2 == 0 ? "治愈" : "放松", "流行")).ToList();
+        var manyMatches = TagPlaylistFilter.Match(manySongs, new[] { "治愈", "放松" }, null, null, 1);
+        var manySelection = new TagPlaylistSelectionState();
+        foreach (var song in manyMatches.Take(12)) manySelection.SetRemoved(song.SongId, true);
+        int removed = manySelection.RemovedCount(manyMatches);
+        var finalSongs = manySelection.FinalSongs(manyMatches);
+        Check(manyMatches.Count == 80 && removed == 12 && finalSongs.Count == 68,
+            "80 matching songs minus 12 manual removals leaves 68");
+        Check(manyMatches.Take(12).All(song => finalSongs.All(final => final.SongId != song.SongId)),
+            "manually removed songs are not submitted");
+        Check(manyMatches.Skip(12).All(song => finalSongs.Any(final => final.SongId == song.SongId)),
+            "every remaining matching song stays selected");
         return 0;
     }
 }

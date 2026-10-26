@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Text;
 using System.Windows.Forms;
@@ -46,6 +47,7 @@ namespace NeteaseToolbox
     internal sealed partial class ToolboxForm
     {
         private ThemePalette theme = ThemePalette.Dark;
+        internal Color ThemeBorder { get { return theme.Border; } }
         private readonly string themeSettingPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             @"NeteaseToolbox\appearance.txt");
@@ -56,7 +58,7 @@ namespace NeteaseToolbox
         {
             var row = new FlowLayoutPanel {
                 Name = "AppearanceSettings", Location = new Point(28, 76),
-                Size = new Size(440, 36), WrapContents = false,
+                AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false,
                 BackColor = Color.Transparent
             };
             var caption = Label("界面主题", 10, true, ink);
@@ -121,6 +123,7 @@ namespace NeteaseToolbox
             }
             finally { ResumeLayout(true); }
             ApplyWallpaperSurfaces(this);
+            UpdateSidebarScrollArrows();
             Invalidate(true);
         }
 
@@ -151,12 +154,59 @@ namespace NeteaseToolbox
                 }
             }
             var tabs = control as TabControl;
-            if (tabs != null) {
-                tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
-                tabs.DrawItem -= DrawThemeTab;
-                tabs.DrawItem += DrawThemeTab;
+            if (tabs != null) ApplyTabTheme(tabs);
+            var combo = control as ComboBox;
+            if (combo != null) {
+                combo.FlatStyle = FlatStyle.Flat;
+                combo.BackColor = theme.Panel;
+                combo.ForeColor = theme.Ink;
+                combo.DrawMode = DrawMode.OwnerDrawFixed;
+                combo.DrawItem -= DrawThemedComboItem;
+                combo.DrawItem += DrawThemedComboItem;
             }
             control.Invalidate();
+        }
+
+        private void DrawThemedComboItem(object sender, DrawItemEventArgs e)
+        {
+            var combo = sender as ComboBox;
+            if (combo == null) return;
+            bool selected = (e.State & DrawItemState.Selected) != 0;
+            using (var brush = new SolidBrush(selected ? theme.Secondary : theme.Panel))
+                e.Graphics.FillRectangle(brush, e.Bounds);
+            if (e.Index < 0 || e.Index >= combo.Items.Count) return;
+            TextRenderer.DrawText(e.Graphics, combo.GetItemText(combo.Items[e.Index]), combo.Font, e.Bounds,
+                combo.Enabled ? theme.Ink : theme.Muted,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            ApplyAllTabThemes(this);
+        }
+
+        private void ApplyAllTabThemes(Control root)
+        {
+            foreach (Control child in root.Controls) {
+                var tabs = child as TabControl;
+                if (tabs != null) ApplyTabTheme(tabs);
+                ApplyAllTabThemes(child);
+            }
+        }
+
+        internal void ApplyTabTheme(TabControl tabs)
+        {
+            bool customBar = tabBarControls.Contains(tabs);
+            tabs.DrawMode = TabDrawMode.Normal;
+            tabs.Appearance = customBar ? TabAppearance.FlatButtons : TabAppearance.Normal;
+            tabs.SizeMode = customBar ? TabSizeMode.Fixed : TabSizeMode.Normal;
+            if (customBar) tabs.ItemSize = new Size(1, 1);
+            foreach (TabPage page in tabs.TabPages) {
+                page.UseVisualStyleBackColor = false;
+                page.BackColor = theme.Panel;
+            }
+            if (customBar) tabs.Invalidate();
         }
 
         private void PrepareThemedDialog(Control dialog)
@@ -167,15 +217,36 @@ namespace NeteaseToolbox
             ApplyUiFonts(dialog);
         }
 
-        private void DrawThemeTab(object sender, DrawItemEventArgs e)
+    }
+
+    internal static class UiDrawing
+    {
+        internal static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
         {
-            var tabs = (TabControl)sender;
-            bool selected = tabs.SelectedIndex == e.Index;
-            using (var brush = new SolidBrush(selected ? theme.Secondary : theme.Panel))
-                e.Graphics.FillRectangle(brush, e.Bounds);
-            TextRenderer.DrawText(e.Graphics, tabs.TabPages[e.Index].Text, tabs.Font, e.Bounds,
-                selected ? theme.Ink : theme.Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            if ((e.State & DrawItemState.Focus) != 0) ControlPaint.DrawFocusRectangle(e.Graphics, e.Bounds);
+            var path = new GraphicsPath();
+            int diameter = Math.Max(1, Math.Min(radius * 2, Math.Min(bounds.Width, bounds.Height)));
+            if (diameter <= 2) { path.AddRectangle(bounds); return path; }
+            int arc = diameter / 2;
+            var corner = new Rectangle(bounds.X, bounds.Y, diameter, diameter);
+            path.AddArc(corner, 180, 90);
+            corner.X = bounds.Right - diameter;
+            path.AddArc(corner, 270, 90);
+            corner.Y = bounds.Bottom - diameter;
+            path.AddArc(corner, 0, 90);
+            corner.X = bounds.X;
+            path.AddArc(corner, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        internal static Color Blend(Color from, Color to, double amount)
+        {
+            amount = Math.Max(0, Math.Min(1, amount));
+            return Color.FromArgb(
+                (int)Math.Round(from.A + (to.A - from.A) * amount),
+                (int)Math.Round(from.R + (to.R - from.R) * amount),
+                (int)Math.Round(from.G + (to.G - from.G) * amount),
+                (int)Math.Round(from.B + (to.B - from.B) * amount));
         }
     }
 }

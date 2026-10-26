@@ -35,9 +35,10 @@ internal static class LocalPlaybackValidation
                 var sessions = (ListView)type.GetField("localPlaybackSessions", Private).GetValue(form);
                 var evidence = (RichTextBox)type.GetField("localPlaybackEvidence", Private).GetValue(form);
                 var timer = (Timer)type.GetField("localPlaybackTimer", Private).GetValue(form);
-                Check(timer.Interval == 300000 && !timer.Enabled, "Five-minute timer is inactive before startup");
+                Check(timer.Interval == 3 * 60 * 60 * 1000 && !timer.Enabled, "Three-hour timer is inactive before startup");
                 Check(songs.Items.Count > 0 && songs.Columns[2].Text == "播放次数", "Unified counts populated");
-                Check(sessions.Items.Count > 0 && sessions.Items[0].SubItems[2].Text == "10", "Partial replay counted with nine full repeats");
+                Check(sessions.Items.Count > 0 && sessions.Items[0].SubItems[3].Text == "10", "Partial replay counted with nine full repeats");
+                Check(sessions.Items[0].SubItems[2].Text == "电脑", "Desktop source is labelled");
                 var account = (ComboBox)form.Controls.Find("LocalPlaybackAccounts", true)[0];
                 Check(account.SelectedItem != null, "Account selected");
                 Directory.CreateDirectory(args[2]);
