@@ -1,0 +1,138 @@
+<Window x:Class="NeteaseToolbox.Wpf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:local="clr-namespace:NeteaseToolbox.Wpf"
+        mc:Ignorable="d"
+        Title="网易云工具箱" Height="820" Width="1240" MinHeight="680" MinWidth="960"
+        WindowStartupLocation="CenterScreen"
+        ui:WindowHelper.UseModernWindowStyle="False">
+    
+    <Grid>
+        <Grid.RowDefinitions>
+            <!-- 顶栏状态与标题 -->
+            <RowDefinition Height="46" />
+            <!-- 主内容区域 (导航 + 页面) -->
+            <RowDefinition Height="*" />
+            <!-- 底部任务状态栏 (严格遵循项目规范) -->
+            <RowDefinition Height="36" />
+        </Grid.RowDefinitions>
+
+        <!-- 顶栏 -->
+        <Border Grid.Row="0" Background="{DynamicResource SystemControlBackgroundAltHighBrush}" 
+                BorderBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}" BorderThickness="0,0,0,1">
+            <Grid Margin="18,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- 应用标识与版本 -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="🎵" FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBlock Text="网易云++ 工具箱" FontSize="15" FontWeight="SemiBold" 
+                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" VerticalAlignment="Center" />
+                    <Border Margin="10,0,0,0" CornerRadius="4" Background="{DynamicResource SystemControlBackgroundBaseLowBrush}" Padding="6,2">
+                        <TextBlock x:Name="AppVersionText" Text="v2.1.0" FontSize="11" FontWeight="Medium" 
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                    </Border>
+                </StackPanel>
+
+                <!-- 顶栏右侧快捷操作 -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- 三行桌面歌词状态开关 -->
+                    <Button x:Name="LyricToggleButton" Padding="12,4" Margin="0,0,8,0" Click="OnLyricToggleClick">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="LyricStatusDot" Width="8" Height="8" Fill="#2A9D8F" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock x:Name="LyricStatusText" Text="桌面三行歌词：已就绪" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+
+                    <!-- 主题切换按钮 -->
+                    <Button x:Name="ThemeToggleButton" Content="🌓 主题" Padding="10,4" Click="OnThemeToggleClick" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 主内容区域：ModernWpf NavigationView -->
+        <ui:NavigationView Grid.Row="1" x:Name="NavView" 
+                           PaneDisplayMode="Left" 
+                           IsBackButtonVisible="Collapsed" 
+                           IsSettingsVisible="False"
+                           SelectionChanged="OnNavSelectionChanged"
+                           ItemInvoked="OnNavItemInvoked"
+                           OpenPaneLength="200"
+                           CompactPaneLength="56">
+            <ui:NavigationView.MenuItems>
+                <ui:NavigationViewItem Content="听歌画像" Tag="Profile" Icon="ViewAll" IsSelected="True" />
+                <ui:NavigationViewItem Content="曲风分析" Tag="Genre" Icon="Audio" />
+                <ui:NavigationViewItem Content="音乐转换" Tag="Convert" Icon="MusicInfo" />
+                <ui:NavigationViewItem Content="音乐记忆" Tag="Memory" Icon="Clock" />
+                <ui:NavigationViewItem Content="音频转麦克风" Tag="AudioForward" Icon="Microphone" />
+                <ui:NavigationViewItem Content="多人一起听" Tag="MultiListen" Icon="People" />
+                <ui:NavigationViewItem Content="每日签到" Tag="DailySignin" Icon="Calendar" />
+                <ui:NavigationViewItem Content="设置与维护" Tag="Settings" Icon="Setting" />
+            </ui:NavigationView.MenuItems>
+
+            <ui:NavigationView.FooterMenuItems>
+                <ui:NavigationViewItem x:Name="AccountNavItem" Tag="Account" SelectsOnInvoked="False">
+                    <ui:NavigationViewItem.Content>
+                        <Grid Margin="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="32" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Width="28" Height="28" CornerRadius="14" 
+                                    Background="{DynamicResource SystemControlHighlightAccentBrush}">
+                                <TextBlock Text="👤" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="AccountNicknameText" Text="未登录网易云" FontSize="12" FontWeight="SemiBold" 
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock x:Name="AccountStatusText" Text="点击登录账号" FontSize="10" 
+                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                            </StackPanel>
+                        </Grid>
+                    </ui:NavigationViewItem.Content>
+                </ui:NavigationViewItem>
+            </ui:NavigationView.FooterMenuItems>
+
+            <!-- 页面内容展示容器 -->
+            <Border x:Name="ContentBorder" Background="#141821">
+                <Grid>
+                    <ContentControl x:Name="WinFormsArea" Visibility="Hidden" />
+                    <ContentControl x:Name="ContentArea" Visibility="Visible" />
+                </Grid>
+            </Border>
+        </ui:NavigationView>
+
+        <!-- 底部任务状态栏（严格遵循任务反馈约定，错误信息界面可见，保留任务消息） -->
+        <Border Grid.Row="2" Background="{DynamicResource SystemControlBackgroundAltHighBrush}" 
+                BorderBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}" BorderThickness="0,1,0,0">
+            <Grid Margin="16,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- 左侧任务状态反馈 -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse x:Name="TaskStatusDot" Width="8" Height="8" Fill="#2A9D8F" Margin="0,0,8,0" VerticalAlignment="Center" />
+                    <TextBlock x:Name="TaskStatusText" Text="就绪" FontSize="12" 
+                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <!-- 右侧任务消息与日志入口 -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="TaskMessagesButton" Content="📋 任务消息" Padding="10,2" Margin="0,0,8,0" 
+                            Style="{DynamicResource DefaultButtonStyle}" FontSize="12" Click="OnTaskMessagesClick" />
+                    <Button x:Name="RuntimeLogButton" Content="📜 运行日志" Padding="10,2" 
+                            Style="{DynamicResource DefaultButtonStyle}" FontSize="12" Click="OnRuntimeLogClick" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

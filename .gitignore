@@ -1,0 +1,38 @@
+toolbox/*.exe
+toolbox/*.pdb
+toolbox/*.dll
+toolbox/bin/
+toolbox/obj/
+toolbox/backups/
+**/__pycache__/
+**/*.pyc
+
+# Local settings and machine-specific paths
+converter.settings.json
+output-folder.txt
+toolbox/chart-report-project.txt
+
+# Bundled runtimes, extracted application resources, and generated diagnostics
+desktop-lyrics/tools/
+desktop-lyrics/payload/
+desktop-lyrics/extracted/
+desktop-lyrics/references/
+desktop-lyrics/reports/
+desktop-lyrics/artifacts/
+
+# Generated report builds and local dependencies
+input-folder.txt
+dist/
+toolbox/runtime/
+toolbox/installers/
+toolbox/Lyric3/
+client-folder.txt
+网易云工具箱便携包*.zip
+
+# Copies deployed into the toolbox folder by build.ps1
+toolbox/convert.ps1
+toolbox/music-profile/
+toolbox/网易云工具箱.exe.config
+
+# Retired Vite report app (archived outside the repository)
+music-profile/report-app/
