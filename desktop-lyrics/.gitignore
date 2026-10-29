@@ -1,0 +1,10 @@
+references/
+tools/
+extracted/
+reports/
+artifacts/
+__pycache__/
+compatibility-report.json
+payload/node_modules/
+payload/runtime/
+payload/vendor/

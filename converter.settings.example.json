@@ -1,0 +1,5 @@
+{
+  "InputDirectory": "./music",
+  "OutputDirectory": "./converted",
+  "FfmpegPath": "./ffmpeg/bin/ffmpeg.exe"
+}
