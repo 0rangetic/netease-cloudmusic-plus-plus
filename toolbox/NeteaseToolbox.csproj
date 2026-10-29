@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Platforms>x64</Platforms>
+    <Platform>x64</Platform>
+    <AssemblyName>网易云工具箱</AssemblyName>
+    <RootNamespace>NeteaseToolbox</RootNamespace>
+    <StartupObject>NeteaseToolbox.Program</StartupObject>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>2.1.0.10</Version>
+    <AssemblyVersion>2.1.0.10</AssemblyVersion>
+    <FileVersion>2.1.0.10</FileVersion>
+    <ProductVersion>2.1.0.10</ProductVersion>
+    <Company></Company>
+    <Product>网易云工具箱</Product>
+    <Description>网易云音乐 Windows 综合本地工具箱，包含音乐转换、曲风分析、原生听歌画像、桌面歌词与音频转发。</Description>
+    <Copyright>Copyright © 2026</Copyright>
+    <OutputPath>bin\x64\Release\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModernWpfUI" Version="0.9.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Microsoft.Web.WebView2.Core">
+      <HintPath>Microsoft.Web.WebView2.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Web.WebView2.WinForms">
+      <HintPath>Microsoft.Web.WebView2.WinForms.dll</HintPath>
+    </Reference>
+    <Reference Include="NAudio.Core">
+      <HintPath>NAudio.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="NAudio.Wasapi">
+      <HintPath>NAudio.Wasapi.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Management" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Web" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Numerics" />
+    <Reference Include="WindowsFormsIntegration" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="scratch*/**" />
+    <Compile Remove="*Validation.cs" />
+    <EmbeddedResource Include="app.ico" LogicalName="NeteaseToolbox.AppIcon.ico" />
+  </ItemGroup>
+</Project>
