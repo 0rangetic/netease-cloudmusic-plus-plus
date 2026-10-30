@@ -42,7 +42,13 @@ function fixture({ exitSuccess = true, initialPaused = false, fakeClock = false,
   // playhead observable in 109.b; 3.1.42.205594 moved them to 2092.c and 110.b.
   // The patch must resolve both by capability, so the fixture can model either.
   const parserSample = 'orpheus://open?url1=orpheus%3A%2F%2Fnm%2FmultiListenTogether%2FjoinRoom%3FroomId%3D1%26inviterId%3D1';
-  const makeParser = () => src => String(src).includes('multiListenTogether') ? { action: 'multiListenTogether' } : null;
+  // Model the real parser source shape: the resolver only invokes a function
+  // that visibly parses the orpheus://open? wrapper for multiListenTogether.
+  const makeParser = () => src => {
+    const text = String(src);
+    if (!text.includes('orpheus://open?')) return null;
+    return text.includes('multiListenTogether') ? { action: 'multiListenTogether' } : null;
+  };
   const layout = clientLayout || '3.1.42';
   if (layout === '3.1.41') {
     modules[2093] = { c: makeParser() };
@@ -51,10 +57,11 @@ function fixture({ exitSuccess = true, initialPaused = false, fakeClock = false,
     modules[2092] = { a: () => null, b: () => null, c: makeParser() };
     modules[110] = { b: { getValue: () => position } };
   }
-  const r = id => modules[id];
+  const accessed = [];
+  const r = id => { accessed.push(id); return modules[id]; };
   r.m = layout === '3.1.41'
-    ? { 109: 'function(){/*position progress*/}', 2093: 'function(){/*multiListenTogether parser*/}' }
-    : { 110: 'function(){/*position progress*/}', 2092: 'function(){/*multiListenTogether parser*/}' };
+    ? { 109: 'function(){/*position progress getValue*/}', 2093: 'function(){/*multiListenTogether parser*/}', 999: 'function(){/*unrelated install and risk-control UI*/}' }
+    : { 110: 'function(){/*position progress getValue*/}', 2092: 'function(){/*multiListenTogether parser*/}', 999: 'function(){/*unrelated install and risk-control UI*/}' };
   const makeNode = () => { const n = { style: {}, children: [], append(...children) { this.children.push(...children); }, remove() { this.removed = true; } }; nodes.push(n); return n; };
   const window = { __wxr: r, __ncmMultiStopBridge: () => { stopped = true; } };
   const context = vm.createContext({ window, document: { createElement: makeNode, body: makeNode() }, ...clock, console });
@@ -62,7 +69,7 @@ function fixture({ exitSuccess = true, initialPaused = false, fakeClock = false,
   let result = null;
   if (!skipInstall) result = install(parseInvitation, targetSeconds, version);
   return {
-    s: window.__ncmMulti, window, nodes, calls, info, store, install, result, toast, originalToast, stopped: () => stopped,
+    s: window.__ncmMulti, window, nodes, calls, info, store, install, result, toast, originalToast, accessed, stopped: () => stopped,
     beats: () => calls.filter(x => x.path?.endsWith('heartbeat')).length,
     failHeartbeat(code = 500) { heartbeatError = { code, message: '模拟心跳失败' }; },
     recoverHeartbeat() { heartbeatError = null; },
@@ -114,6 +121,14 @@ test('module ids are resolved by capability on both 3.1.41 and 3.1.42 layouts', 
       assert.equal(f.s.members, 3);
     } finally { f.s.dispose(); }
   }
+});
+
+test('module resolution never instantiates unrelated client modules', () => {
+  const f = fixture();
+  try {
+    assert.equal(f.s.status().moduleMap.parser, '2092.c');
+    assert.equal(f.accessed.includes(999), false, 'unrelated module factories must not run');
+  } finally { f.s.dispose(); }
 });
 
 test('an unrecognised client layout stops installation instead of using wrong modules', () => {

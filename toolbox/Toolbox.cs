@@ -19,9 +19,9 @@ using System.Web.Script.Serialization;
 [assembly: AssemblyDescription("网易云账号播放记录、音乐记忆检索、转换、曲风分析、听歌画像、多人一起听、桌面歌词与音频转麦克风工具箱")]
 [assembly: AssemblyProduct("网易云工具箱")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyVersion("2.13.0.4")]
-[assembly: AssemblyFileVersion("2.13.0.4")]
-[assembly: AssemblyInformationalVersion("2.13.0.4")]
+[assembly: AssemblyVersion("2.13.0.6")]
+[assembly: AssemblyFileVersion("2.13.0.6")]
+[assembly: AssemblyInformationalVersion("2.13.0.6")]
 
 namespace NeteaseToolbox
 {

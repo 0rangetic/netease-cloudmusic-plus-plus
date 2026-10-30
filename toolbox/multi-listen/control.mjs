@@ -34,8 +34,8 @@ function send(method, params = {}, timeout = 20000) {
     ws.send(JSON.stringify({ id, method, params }));
   });
 }
-async function evaluate(expression) {
-  const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, 45000);
+async function evaluate(expression, timeout = 45000) {
+  const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, timeout);
   if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
   return r.result.value;
 }
@@ -81,8 +81,22 @@ try {
     ws.close();
   } else if (mode === 'watch') {
     if (ws.kind === 'native') {
-      const existing = await evaluate('window.__ncmMulti && ({version:window.__ncmMulti.version,disconnected:window.__ncmMulti.bridgeDisconnected===true})');
-      if (existing && !(existing.version === version && existing.disconnected)) throw new Error('已有补丁运行，版本 ' + existing.version + '；请勿重复启动');
+      // The native host allows a single owner, so reaching this point means any
+      // patch left in the page is orphaned. Reuse it instead of refusing to
+      // start: a start that failed after installing the patch used to make
+      // every later attempt fail with a stale "already running" state.
+      const existing = await evaluate('window.__ncmMulti && ({version:window.__ncmMulti.version})');
+      if (existing && existing.version !== version) {
+        // Holding the sole owner connection proves no other controller is live.
+        // Replace the orphaned build instead of leaving users stuck on an old patch.
+        await evaluate(`(() => {
+          const old = window.__ncmMulti;
+          if (!old) return;
+          if (typeof old.dispose === 'function') old.dispose();
+          else { delete window.__ncmMulti; document.getElementById('ncm-multi-panel')?.remove(); }
+        })()`);
+        console.log('已清理旧版补丁 ' + existing.version);
+      }
       // The CEF internal DevTools client can outlive an older helper. Clear its
       // old domain state before binding this owner, even after an abrupt exit.
       await send('Debugger.disable');
@@ -95,28 +109,39 @@ try {
     await send('Runtime.addBinding', { name: '__ncmMultiStopBridge' });
     const source = await readFile(new URL('./runtime.js', import.meta.url), 'utf8');
     const boot = `(${source})(${parseInvitation.toString()},${targetSeconds.toString()},${JSON.stringify(version)})`;
-    const installed = await evaluate(boot);
-    if (installed.alreadyInstalled && !(installed.version === version && await evaluate('window.__ncmMulti.bridgeDisconnected === true'))) {
-      throw new Error('已有补丁运行，版本 ' + installed.version + '；请勿重复启动');
+    let installed;
+    try { installed = await evaluate(boot); }
+    catch (e) { throw new Error('加载补丁失败（网易云页面调试通道无响应，请重启网易云客户端后重试）：' + e.message); }
+    if (installed.alreadyInstalled && installed.version !== version) {
+      throw new Error('已有补丁运行，版本 ' + installed.version + '；请先退出并停用旧补丁');
     }
     await evaluate(`Object.assign(window.__ncmMulti,{transport:${JSON.stringify(ws.kind)},bridgeDisconnected:false,clickHook:false,clickHookReady:false,hostLastSeen:Date.now()})`);
     console.log(JSON.stringify(installed));
-    await send('Debugger.enable');
-    // Bind the click hook to the parser module the patch resolved at runtime.
-    // Webpack ids move between client releases (2093 on 3.1.41, 2092 on 3.1.42).
-    const parser = await send('Runtime.evaluate', { expression: 'window.__ncmMulti.parserTarget?.() ?? null' });
+    // The invitation click hook is optional: joining from the panel keeps
+    // working when CEF's debugger domain is slow or unavailable. Never let it
+    // abort the connection and leave a half-installed patch behind.
+    let clickHook = false;
     try {
+      await send('Debugger.enable', {}, 10000);
+      // Bind the click hook to the parser module the patch resolved at runtime.
+      // Webpack ids move between client releases (2093 on 3.1.41, 2092 on 3.1.42).
+      const parser = await send('Runtime.evaluate', { expression: 'window.__ncmMulti.parserTarget?.() ?? null' }, 10000);
       await send('Debugger.setBreakpointOnFunctionCall', {
         objectId: parser.result.objectId,
         condition: '(window.__ncmMulti.receive(e),false)',
-      });
+      }, 10000);
+      clickHook = true;
       console.log('邀请点击入口已连接');
-      await evaluate('window.__ncmMulti.clickHook=true');
     } catch (e) {
-      console.error('点击入口未连接，可用面板里的“读取私信邀请”：' + e.message);
-    } finally { await evaluate('window.__ncmMulti.clickHookReady=true'); }
-    try { await evaluate('window.__ncmMulti.roomId ? window.__ncmMulti.status() : window.__ncmMulti.restore()'); }
-    catch (e) { await evaluate(`window.__ncmMulti.reportFailure(${JSON.stringify('恢复房间失败：' + e.message + '；可稍后在面板重试')})`); }
+      console.error('点击入口未连接，可用面板里的“读取私信邀请”或粘贴邀请链接；若反复失败请重启网易云客户端：' + e.message);
+      try { await send('Debugger.disable', {}, 3000); } catch {}
+    } finally {
+      try { await evaluate(`Object.assign(window.__ncmMulti,{clickHook:${clickHook},clickHookReady:true})`, 8000); } catch {}
+    }
+    try { await evaluate('window.__ncmMulti.roomId ? window.__ncmMulti.status() : window.__ncmMulti.restore()', 20000); }
+    catch (e) {
+      try { await evaluate(`window.__ncmMulti.reportFailure(${JSON.stringify('恢复房间失败：' + e.message + '；可稍后在面板重试')})`, 8000); } catch {}
+    }
     console.log('多人实验补丁运行中；客户端退出后结束。');
     process.on('SIGINT', async () => { await evaluate('window.__ncmMulti.hostDisconnected()').catch(() => {}); ws.close(); });
     const pulse = setInterval(() => void evaluate('window.__ncmMulti && (window.__ncmMulti.hostLastSeen=Date.now())').catch(() => {}), 10000);

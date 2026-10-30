@@ -11,10 +11,10 @@
     <StartupObject>NeteaseToolbox.Program</StartupObject>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>2.13.0.4</Version>
-    <AssemblyVersion>2.13.0.4</AssemblyVersion>
-    <FileVersion>2.13.0.4</FileVersion>
-    <ProductVersion>2.13.0.4</ProductVersion>
+    <Version>2.13.0.6</Version>
+    <AssemblyVersion>2.13.0.6</AssemblyVersion>
+    <FileVersion>2.13.0.6</FileVersion>
+    <ProductVersion>2.13.0.6</ProductVersion>
     <Company></Company>
     <Product>网易云工具箱</Product>
     <Description>网易云音乐 Windows 综合本地工具箱，包含音乐转换、曲风分析、原生听歌画像、桌面歌词与音频转发。</Description>

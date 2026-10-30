@@ -17,7 +17,7 @@ namespace NeteaseToolbox
     {
         // 多人一起听页面：把独立的官方多人一起听补丁（listen-together）接到工具箱。
         // 补丁运行时位于工具箱目录下的 multi-listen\，源码位于仓库 listen-together\，两处保持逐字节一致。
-        private const string MultiListenPatchVersion = "0.4.2";
+        private const string MultiListenPatchVersion = "0.4.3";
         // Client builds verified for the in-process transport. 3.1.42.205594 ships
         // the identical libcef.dll (same CEF 91 / branch 4472 layouts), so the CEF
         // layer and native-agent offsets are unchanged; native_bridge.py still
@@ -157,7 +157,9 @@ namespace NeteaseToolbox
                 if (alreadyInstalled && MultiListenConnectionReady(probe.Item2)) status = probe.Item2;
                 if (status == null) {
                     SetMultiListenStatusText("正在连接网易云并加载补丁…");
-                    if (!alreadyInstalled) bridgeProcess = StartMultiListenBridge();
+                    // 补丁可能仍在页面里，但上次启动失败或工具箱被关掉后宿主已经消失。
+                    // 状态未就绪就重新拉起桥；真正存活的会话会走上面的 status 分支。
+                    bridgeProcess = StartMultiListenBridge();
                     var deadline = DateTime.UtcNow.AddSeconds(65);
                     while (DateTime.UtcNow < deadline) {
                         await Task.Delay(1000);
@@ -518,8 +520,17 @@ namespace NeteaseToolbox
 
         private static bool MultiListenConnectionReady(Dictionary<string, object> data)
         {
-            return data != null && !MultiListenFlag(data, "bridgeDisconnected") && (data.ContainsKey("clickHookReady")
-                ? MultiListenFlag(data, "clickHookReady") : MultiListenFlag(data, "clickHook"));
+            if (data == null || MultiListenFlag(data, "bridgeDisconnected")) return false;
+            // 0.4.3 起用宿主心跳判断连接是否真的存活。clickHookReady 只表示
+            // “钩子尝试已结束”：成功或失败都会置位，所以钩子失败不会阻断连接，
+            // 但能避免在钩子尚未尝试时抢先误报“部分失败”。
+            object hostAlive;
+            if (data.TryGetValue("hostAlive", out hostAlive)) {
+                if (!(hostAlive is bool && (bool)hostAlive)) return false;
+                if (data.ContainsKey("clickHookReady")) return MultiListenFlag(data, "clickHookReady");
+            }
+            return data.ContainsKey("clickHookReady")
+                ? MultiListenFlag(data, "clickHookReady") : MultiListenFlag(data, "clickHook");
         }
 
         private static string MultiListenNode()

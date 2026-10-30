@@ -1,6 +1,6 @@
 function installMulti(parseInvitation, targetSeconds, version) {
   'use strict';
-  version = version || '0.4.2';
+  version = version || '0.4.3';
   if (window.__ncmMulti) return { installed: true, alreadyInstalled: true, version: window.__ncmMulti.version };
   if (!window.__wxr) {
     window.webpackJsonp.push([['ncm_multi_probe_' + Date.now()], { ncm_multi_require: function(m, e, r) { window.__wxr = r; } }, [['ncm_multi_require']]]);
@@ -20,7 +20,7 @@ function installMulti(parseInvitation, targetSeconds, version) {
     if (res?.code !== 200) throw Object.assign(new Error(res?.message || res?.body?.message || '多人接口请求失败'), { code: res?.code });
     return res.data;
   };
-  const s = { version, roomId: '', account: uid(), generation: 0, syncing: true, timer: null, busy: false, pendingJoin: false, info: null, sampledAt: 0, lastBeat: 0, lastMembers: 0, members: 0, people: [], log: [], notice: '多人补丁已加载', selected: null, clickHook: false, clickHookReady: false, failures: 0, loadedKey: '', stale: false, hostLastSeen: Date.now() };
+  const s = { version, roomId: '', account: uid(), generation: 0, syncing: true, timer: null, busy: false, pendingJoin: false, info: null, sampledAt: 0, lastBeat: 0, lastMembers: 0, members: 0, people: [], log: [], notice: '多人补丁已加载', selected: null, clickHook: false, clickHookReady: false, failures: 0, loadedKey: '', stale: false, hostLastSeen: 0 };
   const playhead = () => {
     try { return Number(modules.playheadModule.get()); } catch (_) { return 0; }
   };
@@ -246,8 +246,10 @@ function installMulti(parseInvitation, targetSeconds, version) {
     window.__ncmMultiStopBridge?.('stop');
     return { stopped: true };
   }
+  // Do not tie this to clickHook: a start that failed before enabling the
+  // debugger still leaves a live page patch that must report itself orphaned.
   const hostWatch = setInterval(() => {
-    if (s.clickHook && Date.now() - s.hostLastSeen > 25000) s.hostDisconnected();
+    if (Date.now() - s.hostLastSeen > 25000) s.hostDisconnected();
   }, 10000);
   let suppressUntil = 0;
   const originalToast = r(3).L.error;
@@ -259,14 +261,14 @@ function installMulti(parseInvitation, targetSeconds, version) {
     restore, leave, tick, shutdown,
     reportFailure(message) { note(message, true); },
     receive(raw) { let invite; try { invite = parseInvitation(raw); } catch (_) { return; } suppressUntil = Date.now() + 1000; void join(invite).catch(() => {}); },
-    hostDisconnected() { s.clickHook = false; s.bridgeDisconnected = true; note('邀请点击桥已断开；已加入房间仍继续同步，请在工具箱重新连接', true); },
+    hostDisconnected() { s.clickHook = false; s.bridgeDisconnected = true; note('工具箱连接已断开；已加入房间仍继续同步，请在工具箱重新连接', true); },
     dispose() {
       ++s.generation; s.roomId = ''; s.syncing = false; clearTimeout(s.timer); clearInterval(hostWatch);
       r(3).L.error = originalToast; panel.remove();
       for (const p of tokens.values()) { clearTimeout(p.timer); p.reject(new Error('补丁已更新')); }
       tokens.clear(); delete window.__ncmMulti; delete window.__ncmMultiTokenReply;
     },
-    status() { return { version: s.version, installed: true, transport: s.transport, bridgeDisconnected: !!s.bridgeDisconnected, roomId: s.roomId, members: s.members, syncing: s.syncing, stale: s.stale, busy: s.busy, lastBeat: s.lastBeat, heartbeatDelayMs: s.heartbeatDelayMs, songId: s.info?.playSong?.songId, nativeSongId: store().playing.resourceTrackId, position: playhead(), target: s.info ? targetSeconds(s.info, s.sampledAt, Date.now()) : null, notice: s.notice, clickHook: s.clickHook, clickHookReady: s.clickHookReady, moduleMap: modules.label, messages: s.log.slice(-8) }; },
+    status() { return { version: s.version, installed: true, transport: s.transport, bridgeDisconnected: !!s.bridgeDisconnected, hostAlive: Date.now() - s.hostLastSeen < 20000, roomId: s.roomId, members: s.members, syncing: s.syncing, stale: s.stale, busy: s.busy, lastBeat: s.lastBeat, heartbeatDelayMs: s.heartbeatDelayMs, songId: s.info?.playSong?.songId, nativeSongId: store().playing.resourceTrackId, position: playhead(), target: s.info ? targetSeconds(s.info, s.sampledAt, Date.now()) : null, notice: s.notice, clickHook: s.clickHook, clickHookReady: s.clickHookReady, moduleMap: modules.label, messages: s.log.slice(-8) }; },
     // Resolved parser export for the debugger click hook (see control.mjs).
     parserTarget() { return modules.parserFunction(); },
   });
@@ -293,11 +295,21 @@ function installMulti(parseInvitation, targetSeconds, version) {
     const parserSample = 'orpheus://open?url1=' + encodeURIComponent('orpheus://nm/multiListenTogether/joinRoom?roomId=1&inviterId=1');
     let parser = null;
     for (const id of ids) {
+      const text = source(id);
+      // The invitation parser is the only module that contains this literal.
+      // Never instantiate or call unrelated modules: many of them open the
+      // client's own update, install or risk-control dialogs when touched.
+      if (!text.includes('multiListenTogether')) continue;
       const mod = exportsOf(id);
       if (!mod) continue;
-      for (const ns of ['c', 'b', 'a']) {
+      for (const ns of Object.keys(mod)) {
         const fn = mod[ns];
         if (typeof fn !== 'function') continue;
+        let fnSource = '';
+        try { fnSource = String(fn); } catch (_) { continue; }
+        // Only the invitation parser references this action literal; do not
+        // invoke any other function inside the matched module.
+        if (!fnSource.includes('multiListenTogether')) continue;
         let value;
         try { value = fn(parserSample); } catch (_) { continue; }
         if (value && typeof value === 'object' && value.action === 'multiListenTogether') { parser = { id, ns }; break; }
@@ -310,10 +322,13 @@ function installMulti(parseInvitation, targetSeconds, version) {
     //    whose source mentions position/progress. The value is milliseconds.
     const playheadSource = () => {
       for (const id of ids) {
+        const text = source(id);
+        // Check the source before requiring the module. Installing every
+        // webpack module executed unrelated client UI code and caused
+        // update/install and risk-control popups.
+        if (!/position|progress/i.test(text) || !text.includes('getValue')) continue;
         const mod = exportsOf(id);
         if (!mod) continue;
-        const text = source(id);
-        if (!/position|progress/i.test(text)) continue;
         for (const ns of Object.keys(mod)) {
           const value = mod[ns];
           if (!value || typeof value !== 'object' || typeof value.getValue !== 'function') continue;
