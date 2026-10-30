@@ -12,6 +12,7 @@ namespace NeteaseToolbox
 {
     internal sealed partial class ToolboxForm
     {
+        private const string TagPlaylistButtonText = "筛选生成歌单(∠・ω< )⌒★~";
         private readonly Button tagPlaylistButton = new Button();
         private readonly List<TagPlaylistSong> tagPlaylistBuffer = new List<TagPlaylistSong>();
         private int tagPlaylistLiked;
@@ -21,11 +22,13 @@ namespace NeteaseToolbox
         private void ConfigureTagPlaylistButton(Control toolbar)
         {
             tagPlaylistButton.Name = "TagPlaylistButton";
-            tagPlaylistButton.Text = "筛选生成歌单";
-            tagPlaylistButton.Size = new Size(126, 40);
-            tagPlaylistButton.Location = new Point(4, 7);
+            tagPlaylistButton.Text = TagPlaylistButtonText;
+            tagPlaylistButton.Size = new Size(152, 42);
+            tagPlaylistButton.Location = new Point(4, 6);
             tagPlaylistButton.Enabled = File.Exists(genreScriptPath);
-            StyleButton(tagPlaylistButton, ButtonRole.Secondary);
+            StyleButton(tagPlaylistButton, ButtonRole.Primary);
+            int measuredTextWidth = TextRenderer.MeasureText(TagPlaylistButtonText, tagPlaylistButton.Font).Width;
+            tagPlaylistButton.Width = Math.Max(152, measuredTextWidth + 40);
             tagPlaylistButton.Click += async delegate { await GenerateTagPlaylist(); };
             tips.SetToolTip(tagPlaylistButton, "按情绪和曲风筛选红心歌曲，确认后创建新的网易云歌单。");
             toolbar.Controls.Add(tagPlaylistButton);
@@ -93,7 +96,7 @@ namespace NeteaseToolbox
             finally
             {
                 buildingTagPlaylist = false;
-                tagPlaylistButton.Text = "筛选生成歌单";
+                tagPlaylistButton.Text = TagPlaylistButtonText;
                 tagPlaylistButton.Enabled = File.Exists(genreScriptPath) && !analyzingGenres && !converting && !loadingGenreResults;
                 analyzeGenresButton.Enabled = genreSongs.Items.Count > 0 && File.Exists(genreScriptPath);
             }

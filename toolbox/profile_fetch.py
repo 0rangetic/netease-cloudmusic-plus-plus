@@ -105,7 +105,7 @@ def main():
     except (OSError, ValueError):
         pass
     helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "profile_first_listen.js")
-    missing = [song_id for song_id in merged if song_id not in cache]
+    missing = [song_id for song_id in merged if not cache.get(song_id)]
     if missing and os.path.isfile(helper):
         try:
             helper_env = os.environ.copy()
@@ -118,7 +118,7 @@ def main():
             for line in stdout.splitlines():
                 try:
                     result = json.loads(line)
-                    if result.get("data") is not None:
+                    if result.get("data"):
                         cache[str(result["songId"])] = result["data"]
                 except (ValueError, KeyError):
                     continue

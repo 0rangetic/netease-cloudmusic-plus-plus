@@ -19,9 +19,9 @@ using System.Web.Script.Serialization;
 [assembly: AssemblyDescription("网易云账号播放记录、音乐记忆检索、转换、曲风分析、听歌画像、多人一起听、桌面歌词与音频转麦克风工具箱")]
 [assembly: AssemblyProduct("网易云工具箱")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyVersion("2.6.0.0")]
-[assembly: AssemblyFileVersion("2.6.0.0")]
-[assembly: AssemblyInformationalVersion("2.6.0.0")]
+[assembly: AssemblyVersion("2.13.0.4")]
+[assembly: AssemblyFileVersion("2.13.0.4")]
+[assembly: AssemblyInformationalVersion("2.13.0.4")]
 
 namespace NeteaseToolbox
 {
@@ -229,6 +229,7 @@ namespace NeteaseToolbox
         private readonly List<Button> navigationButtons = new List<Button>();
         private readonly List<Control> navigationPages = new List<Control>();
         private WallpaperPanel pageHost;
+        private WallpaperPanel settingsPage;
         private readonly TextBox log = new TextBox();
         private Form logWindow;
         private readonly ToolTip tips = new ToolTip();
@@ -410,6 +411,9 @@ namespace NeteaseToolbox
         {
             if (startupTasksInitialized || IsDisposed) return;
             startupTasksInitialized = true;
+            // Populate the forwarding device list in the background so auto-start can find the
+            // saved output without enumerating audio endpoints before the first frame.
+            RefreshAudioChoices(false);
             StartPhoneSyncServer(true);
             UpdateLyricStatus();
             await StartLocalPlayback();
@@ -784,7 +788,7 @@ namespace NeteaseToolbox
             ConfigureProfileTab(profilePage);
             var memoryPage = BuildMemoryRecallPage();
 
-            var settingsPage = new WallpaperPanel { Name = "SettingsPage", Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(28, 22, 28, 22) };
+            settingsPage = new WallpaperPanel { Name = "SettingsPage", Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(28, 22, 28, 22) };
             var settingsTitle = Label("设置与维护", 13, true, ink);
             settingsTitle.Location = new Point(28, 22);
             settingsPage.Controls.Add(settingsTitle);
@@ -1558,9 +1562,14 @@ namespace NeteaseToolbox
                     outputRoot = selected;
                     UpdateOutputStatus();
                     WriteLog("转换输出目录已设置为：" + outputRoot);
+                    ReportTask("转换输出目录", "完成", settingsOutputStatus.Text);
                     ScanSongs();
                 }
-                catch (Exception ex) { WriteLog("保存输出目录失败：" + ex.Message); }
+                catch (Exception ex)
+                {
+                    WriteLog("保存输出目录失败：" + ex.Message);
+                    ReportTask("转换输出目录", "失败", ex.Message);
+                }
             }
         }
 
@@ -1572,9 +1581,14 @@ namespace NeteaseToolbox
                 outputRoot = null;
                 UpdateOutputStatus();
                 WriteLog("转换输出目录已恢复默认。" );
+                ReportTask("转换输出目录", "完成", settingsOutputStatus.Text);
                 ScanSongs();
             }
-            catch (Exception ex) { WriteLog("恢复默认目录失败：" + ex.Message); }
+            catch (Exception ex)
+            {
+                WriteLog("恢复默认目录失败：" + ex.Message);
+                ReportTask("转换输出目录", "失败", ex.Message);
+            }
         }
 
         private string CustomOutputDirectoryFor(string source)
@@ -2459,7 +2473,11 @@ namespace NeteaseToolbox
 
         private void OpenSafeDedupe()
         {
-            if (converting || deduplicating || extractingCover || analyzingGenres) return;
+            if (converting || deduplicating || extractingCover || analyzingGenres)
+            {
+                ReportTask("安全去重", "失败", "当前有转换或分析任务进行中，请稍后再试。");
+                return;
+            }
             if (string.IsNullOrEmpty(InputRoot) || !Directory.Exists(InputRoot))
             {
                 ReportTask("安全去重", "失败", "请先选择音乐目录。");
@@ -2491,7 +2509,11 @@ namespace NeteaseToolbox
 
         private void OpenTrash()
         {
-            if (converting || deduplicating || extractingCover || analyzingGenres) return;
+            if (converting || deduplicating || extractingCover || analyzingGenres)
+            {
+                ReportTask("工具箱回收站", "失败", "当前有转换或分析任务进行中，请稍后再试。");
+                return;
+            }
             deduplicating = true;
             UpdateConversionSelectionButtons();
             try

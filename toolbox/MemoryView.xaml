@@ -1,0 +1,229 @@
+<UserControl x:Class="NeteaseToolbox.Wpf.MemoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:ui="http://schemas.modernwpf.com/2019"
+             mc:Ignorable="d"
+             d:DesignHeight="760" d:DesignWidth="1000"
+             Background="Transparent">
+    <UserControl.Resources>
+        <!-- 玻璃卡片：底色/描边由主窗口按玻璃开关与明暗主题动态切换，不实色伪装 -->
+        <Style x:Key="GlassCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource ToolboxGlassCardBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolboxGlassCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+        </Style>
+
+        <!-- 卡片顶部柔光：不拦截鼠标，叠加在玻璃底色之上 -->
+        <Style x:Key="GlassCardGlowStyle" TargetType="Border">
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Margin" Value="1" />
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#30FFFFFF" Offset="0" />
+                        <GradientStop Color="#0CFFFFFF" Offset="0.26" />
+                        <GradientStop Color="#00FFFFFF" Offset="0.55" />
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CardTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+        </Style>
+
+        <Style x:Key="CardHintStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+        </Style>
+
+        <Style x:Key="ResultCellStyle" TargetType="TextBlock">
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="ToolTip" Value="{Binding Evidence}" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,20,28,32">
+
+            <!-- 头部：标题、说明、状态 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,14">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,16,20,15">
+                        <TextBlock Text="音乐记忆考古" FontSize="24" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                        <TextBlock Margin="0,5,0,0" FontSize="13" LineHeight="21" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                   Text="按记忆里的日期、时段、歌曲或歌词片段，找回那段时间听过什么。检索只在本机播放记录与本地歌词中进行。" />
+                        <Grid Margin="0,9,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Ellipse x:Name="StatusDot" Width="8" Height="8" VerticalAlignment="Center"
+                                     Fill="{DynamicResource SystemControlHighlightAccentBrush}" />
+                            <TextBlock x:Name="StatusTextBlock" Grid.Column="1" Margin="9,0,0,0"
+                                       FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                       Text="正在读取本机检索状态…" />
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 检索条件 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,14">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,16,20,16">
+                        <TextBox x:Name="QueryBox" Height="58" AcceptsReturn="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"
+                                 FontSize="13" Padding="10,7"
+                                 ui:ControlHelper.PlaceholderText="例如：9月27日中午、昨晚手机上听的歌，或记得的歌词。"
+                                 ToolTip="可输入日期、时段、歌名、艺人、专辑或记得的歌词片段。Ctrl+Enter 直接检索。"
+                                 KeyDown="OnQueryKeyDown" />
+
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <WrapPanel Grid.Column="0" VerticalAlignment="Center">
+                                <CheckBox x:Name="LimitDatesBox" Content="限定日期" VerticalAlignment="Center"
+                                          Margin="0,0,14,0" FontSize="13"
+                                          Checked="OnLimitDatesChanged" Unchecked="OnLimitDatesChanged" />
+                                <DatePicker x:Name="StartDatePicker" Width="138" Margin="0,0,8,0"
+                                            VerticalAlignment="Center" IsEnabled="False" />
+                                <TextBlock Text="至" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="13"
+                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                <DatePicker x:Name="EndDatePicker" Width="138" VerticalAlignment="Center" IsEnabled="False" />
+                            </WrapPanel>
+                            <Button x:Name="SearchButton" Grid.Column="1" Content="开始检索"
+                                    Style="{DynamicResource AccentButtonStyle}"
+                                    Padding="20,7" VerticalAlignment="Center" Click="OnSearchClick" />
+                        </Grid>
+
+                        <CheckBox x:Name="UseAiBox" Margin="0,12,0,0" FontSize="13"
+                                  Content="云端 AI 排序（发送检索描述、歌曲信息和短歌词）"
+                                  Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                  ToolTip="默认关闭。仅勾选后才会把本次描述和有限候选发给 AI 画像设置中的服务；不会发送照片、精确坐标或运动数据。" />
+
+                        <Border x:Name="NoticePanel" Visibility="Collapsed" CornerRadius="6" Padding="12,8"
+                                Margin="0,10,0,0"
+                                Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
+                                BorderBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}"
+                                BorderThickness="1">
+                            <TextBlock x:Name="NoticeTextBlock" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        </Border>
+
+                        <Border x:Name="ErrorPanel" Visibility="Collapsed" CornerRadius="6" Padding="12,8"
+                                Margin="0,10,0,0"
+                                Background="#26E76F51" BorderBrush="#59E76F51" BorderThickness="1">
+                            <TextBlock x:Name="ErrorTextBlock" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 结果列表 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,14">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <Grid Margin="18,14,18,14">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="检索结果" Style="{StaticResource CardTitleStyle}" />
+                            <TextBlock x:Name="ResultCountTextBlock" Grid.Column="1" FontSize="12"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        </Grid>
+                        <TextBlock Grid.Row="1" Margin="0,3,0,10" Style="{StaticResource CardHintStyle}"
+                                   Text="按播放时间排列；点击一行查看本机证据，双击可在网易云打开。" />
+
+                        <Grid Grid.Row="2">
+                            <DataGrid x:Name="ResultsGrid" AutoGenerateColumns="False"
+                                      CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True"
+                                      CanUserSortColumns="False" CanUserReorderColumns="False"
+                                      HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                      SelectionMode="Single" SelectionUnit="FullRow" RowHeight="30"
+                                      FontSize="12" MinHeight="220" MaxHeight="360"
+                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                      SelectionChanged="OnResultSelectionChanged"
+                                      MouseDoubleClick="OnResultDoubleClick">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="播放时间" Binding="{Binding PlayedText}" Width="160"
+                                                        ElementStyle="{StaticResource ResultCellStyle}" />
+                                    <DataGridTextColumn Header="歌曲" Binding="{Binding Title}" Width="1.4*"
+                                                        ElementStyle="{StaticResource ResultCellStyle}" />
+                                    <DataGridTextColumn Header="艺人" Binding="{Binding Artist}" Width="1*"
+                                                        ElementStyle="{StaticResource ResultCellStyle}" />
+                                    <DataGridTextColumn Header="本机证据" Binding="{Binding Evidence}" Width="1.5*"
+                                                        ElementStyle="{StaticResource ResultCellStyle}" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <TextBlock x:Name="EmptyResultTextBlock" IsHitTestVisible="False"
+                                       VerticalAlignment="Center" Margin="14,30,14,0" FontSize="13"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                       Text="还没有结果。输入日期、时段、歌名或记得的歌词，然后开始检索。" />
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- 本机证据 -->
+            <Border Style="{StaticResource GlassCardStyle}">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <Grid Margin="18,14,18,14">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="本机证据" Style="{StaticResource CardTitleStyle}" />
+                                <TextBlock x:Name="EvidenceSubtitleTextBlock" Margin="0,3,0,0" FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                           Text="选中结果后显示播放时间、设备和歌词命中。" />
+                            </StackPanel>
+                            <Button x:Name="OpenSongButton" Grid.Column="1" Content="在网易云打开"
+                                    Padding="14,5" VerticalAlignment="Center" Visibility="Collapsed"
+                                    IsEnabled="False" Click="OnOpenSongClick" />
+                        </Grid>
+
+                        <ScrollViewer Grid.Row="1" Margin="0,10,0,0" MaxHeight="280"
+                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <TextBlock x:Name="EvidenceTextBlock" FontSize="13" LineHeight="22" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                                       Text="检索结果会在这里显示播放时间和歌词命中。" />
+                        </ScrollViewer>
+                    </Grid>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

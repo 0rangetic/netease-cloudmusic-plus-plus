@@ -10,6 +10,14 @@ using System.Windows.Forms;
 
 namespace NeteaseToolbox
 {
+    internal sealed class DailySigninSnapshot
+    {
+        public bool Enabled, Busy, SettingsLoaded;
+        public int Hour, Minute;
+        public string Status, Error;
+        public List<SigninEvent> History = new List<SigninEvent>();
+    }
+
     internal sealed partial class ToolboxForm
     {
         private readonly CheckBox dailySigninAuto = new CheckBox { Name = "DailySigninAuto", Text = "每天自动签到", AutoSize = true };
@@ -20,7 +28,7 @@ namespace NeteaseToolbox
         private readonly HashSet<string> dailySigninSeen = new HashSet<string>();
         private Button dailySigninRun, dailySigninSave;
         private bool dailySigninBusy, dailySigninConfigBusy, dailySigninInitialized;
-        private string dailySigninLastFailure = "", dailySigninAccount = "";
+        private string dailySigninLastFailure = "", dailySigninAccount = "", dailySigninStatusText = "";
 
         private Control BuildDailySigninPage()
         {
@@ -46,7 +54,8 @@ namespace NeteaseToolbox
             dailySigninRun.Click += async delegate { await RunDailySignin(false); };
             options.Controls.Add(dailySigninRun);
             page.Controls.Add(options, 0, 2);
-            dailySigninStatus.ForeColor = muted; dailySigninStatus.Text = "正在读取签到配置…";
+            dailySigninStatus.ForeColor = muted;
+            SetDailySigninStatus("正在读取签到配置…");
             page.Controls.Add(dailySigninStatus, 0, 3);
             dailySigninHistory.BackColor = panel; dailySigninHistory.ForeColor = ink; dailySigninHistory.Font = UiFont(10F);
             page.Controls.Add(dailySigninHistory, 0, 4);
@@ -54,12 +63,37 @@ namespace NeteaseToolbox
                 var settings = DailySigninService.LoadSettings();
                 dailySigninAuto.Checked = settings.Enabled;
                 dailySigninTime.Value = DateTime.Today.AddHours(settings.Hour).AddMinutes(settings.Minute);
-                dailySigninStatus.Text = settings.Enabled ? "每日 " + dailySigninTime.Value.ToString("HH:mm") + "（北京时间）自动执行。" : "每日自动签到已关闭；仍可手动签到。";
-            } catch (Exception ex) { dailySigninAuto.Checked = false; dailySigninStatus.Text = DailySigninService.SafeError(ex); }
+                SetDailySigninStatus(settings.Enabled ? "每日 " + dailySigninTime.Value.ToString("HH:mm") + "（北京时间）自动执行。" : "每日自动签到已关闭；仍可手动签到。");
+            } catch (Exception ex) { dailySigninAuto.Checked = false; SetDailySigninStatus(DailySigninService.SafeError(ex)); }
             dailySigninTimer.Tick += async delegate { RefreshDailySigninHistory(); await RunDailySignin(true); };
             Shown += async delegate { await InitializeDailySignin(); };
             return page;
         }
+        private void SetDailySigninStatus(string text)
+        {
+            dailySigninStatusText = text ?? "";
+            if (!IsDisposed) dailySigninStatus.Text = dailySigninStatusText;
+        }
+        // Shared facade for the native WPF page; the WinForms page stays the owner of
+        // the timer and scheduled-task registration.
+        internal DailySigninSnapshot ReadDailySigninSnapshot()
+        {
+            var snapshot = new DailySigninSnapshot { Status = dailySigninStatusText, Busy = dailySigninBusy || dailySigninConfigBusy };
+            try {
+                var settings = DailySigninService.LoadSettings();
+                snapshot.Enabled = settings.Enabled; snapshot.Hour = settings.Hour; snapshot.Minute = settings.Minute; snapshot.SettingsLoaded = true;
+            } catch (Exception ex) { snapshot.Error = DailySigninService.SafeError(ex); }
+            try {
+                var history = CollectDailySigninHistory();
+                history.Reverse();
+                snapshot.History = history;
+                snapshot.Status = dailySigninStatusText;
+            } catch (Exception ex) { if (string.IsNullOrEmpty(snapshot.Error)) snapshot.Error = DailySigninService.SafeError(ex); }
+            return snapshot;
+        }
+        internal Task InitializeDailySigninAsync() { return InitializeDailySignin(); }
+        internal Task SaveDailySigninSettingsAsync(bool enabled, int hour, int minute) { return SaveDailySigninSettings(enabled, hour, minute); }
+        internal Task RunDailySigninAsync(bool automatic) { return RunDailySignin(automatic); }
         private async Task RegisterDailySigninTask(DailySigninSettings settings)
         {
             string baseDir = Path.GetDirectoryName(typeof(ToolboxForm).Assembly.Location) ?? AppDomain.CurrentDomain.BaseDirectory;
@@ -92,24 +126,30 @@ namespace NeteaseToolbox
                 if (IsDisposed) return;
                 DailySigninService.SaveSettings(settings);
                 ReportTask("自动签到设置", "完成", settings.Enabled ? "每天 " + settings.Hour.ToString("00") + ":" + settings.Minute.ToString("00") + "（北京时间）执行；已启用错过时间补签。" : "每日自动签到已关闭。");
-            } catch (Exception ex) { if (!IsDisposed) { dailySigninStatus.Text = DailySigninService.SafeError(ex); ReportTask("自动签到设置", "失败", dailySigninStatus.Text); } }
+            } catch (Exception ex) { if (!IsDisposed) { SetDailySigninStatus(DailySigninService.SafeError(ex)); ReportTask("自动签到设置", "失败", dailySigninStatusText); } }
             if (!IsDisposed) await RunDailySignin(true);
         }
         private async Task SaveDailySigninSettings()
         {
+            await SaveDailySigninSettings(dailySigninAuto.Checked, dailySigninTime.Value.Hour, dailySigninTime.Value.Minute);
+        }
+        private async Task SaveDailySigninSettings(bool enabled, int hour, int minute)
+        {
             if (dailySigninConfigBusy) return;
             dailySigninConfigBusy = true; dailySigninSave.Enabled = false;
-            var settings = new DailySigninSettings { Enabled = dailySigninAuto.Checked, Hour = dailySigninTime.Value.Hour, Minute = dailySigninTime.Value.Minute };
+            var settings = new DailySigninSettings { Enabled = enabled, Hour = hour, Minute = minute };
             try {
                 // Save the intent first: even if registration fails an old scheduled task obeys disable.
                 DailySigninService.SaveSettings(settings);
                 ReportTask("自动签到设置", "开始", "正在保存时间并更新 Windows 计划任务。");
                 await RegisterDailySigninTask(settings);
                 if (IsDisposed) return;
-                dailySigninStatus.Text = settings.Enabled ? "每天 " + dailySigninTime.Value.ToString("HH:mm") + "（北京时间）自动执行。" : "每日自动签到已关闭。";
-                ReportTask("自动签到设置", "完成", dailySigninStatus.Text);
+                dailySigninAuto.Checked = settings.Enabled;
+                dailySigninTime.Value = DateTime.Today.AddHours(settings.Hour).AddMinutes(settings.Minute);
+                SetDailySigninStatus(settings.Enabled ? "每天 " + settings.Hour.ToString("00") + ":" + settings.Minute.ToString("00") + "（北京时间）自动执行。" : "每日自动签到已关闭。");
+                ReportTask("自动签到设置", "完成", dailySigninStatusText);
                 if (settings.Enabled) await RunDailySignin(true);
-            } catch (Exception ex) { if (!IsDisposed) { dailySigninStatus.Text = DailySigninService.SafeError(ex); ReportTask("自动签到设置", "失败", dailySigninStatus.Text); } }
+            } catch (Exception ex) { if (!IsDisposed) { SetDailySigninStatus(DailySigninService.SafeError(ex)); ReportTask("自动签到设置", "失败", dailySigninStatusText); } }
             finally { dailySigninConfigBusy = false; if (!IsDisposed) dailySigninSave.Enabled = true; }
         }
         private async Task RunDailySignin(bool automatic)
@@ -121,43 +161,48 @@ namespace NeteaseToolbox
                     InvokeUiAsync(() => {
                         if (IsDisposed) return;
                         try { if (NeteaseAuth.Text(NeteaseAuth.Load(), "userId") != item.AccountId) return; } catch { return; }
-                        dailySigninSeen.Add(item.Id);
-                        ReportTask(item.Task, item.Phase, item.Detail); dailySigninStatus.Text = item.Task + " · " + item.Phase + "：" + item.Detail;
+                        if (!dailySigninSeen.Add(item.Id)) return;
+                        ReportTask(item.Task, item.Phase, item.Detail); SetDailySigninStatus(item.Task + " · " + item.Phase + "：" + item.Detail);
                     });
                 }));
                 if (IsDisposed) return;
                 dailySigninLastFailure = "";
-                if (!automatic || !result.Skipped) dailySigninStatus.Text = result.Phase + "：" + result.Detail;
+                if (!automatic || !result.Skipped) SetDailySigninStatus(result.Phase + "：" + result.Detail);
                 if (!automatic && result.Skipped) ReportTask("每日签到", result.Phase, result.Detail);
                 RefreshDailySigninHistory();
             } catch (Exception ex) {
                 if (!IsDisposed) {
                     string message = DailySigninService.SafeError(ex);
-                    dailySigninStatus.Text = message;
+                    SetDailySigninStatus(message);
                     if (!automatic || dailySigninLastFailure != message) ReportTask("每日签到", "失败", message);
                     dailySigninLastFailure = message;
                 }
             } finally { dailySigninBusy = false; if (!IsDisposed) dailySigninRun.Enabled = true; }
+        }
+        private List<SigninEvent> CollectDailySigninHistory()
+        {
+            string runnerError = Path.Combine(DailySigninService.Root, "daily-signin-runner-error.json");
+            if (File.Exists(runnerError)) {
+                var failure = new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<SigninEvent>(File.ReadAllText(runnerError, Encoding.UTF8));
+                if (failure != null && dailySigninSeen.Add(failure.Id)) ReportTask(failure.Task, failure.Phase, failure.Time + " · " + failure.Detail);
+            }
+            string uid = NeteaseAuth.Text(NeteaseAuth.Load(), "userId");
+            if (dailySigninAccount != uid) { dailySigninAccount = uid; dailySigninSeen.Clear(); }
+            var history = DailySigninService.ReadHistory(DailySigninService.AccountDirectory(uid));
+            // Scheduled runs write persistent messages even when the main window is closed.
+            foreach (var item in history.Skip(Math.Max(0, history.Count - 20))) if (dailySigninSeen.Add(item.Id)) {
+                ReportTask(item.Task, item.Phase, item.Time + " · " + item.Detail);
+                SetDailySigninStatus(item.Time + " · " + item.Phase + "：" + item.Detail);
+            }
+            return history;
         }
         private void RefreshDailySigninHistory()
         {
             dailySigninHistory.BackColor = panel;
             dailySigninHistory.ForeColor = ink;
             try {
-                string runnerError = Path.Combine(DailySigninService.Root, "daily-signin-runner-error.json");
-                if (File.Exists(runnerError)) {
-                    var failure = new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<SigninEvent>(File.ReadAllText(runnerError, Encoding.UTF8));
-                    if (failure != null && dailySigninSeen.Add(failure.Id)) ReportTask(failure.Task, failure.Phase, failure.Time + " · " + failure.Detail);
-                }
-                string uid = NeteaseAuth.Text(NeteaseAuth.Load(), "userId");
-                if (dailySigninAccount != uid) { dailySigninAccount = uid; dailySigninSeen.Clear(); dailySigninHistory.Clear(); }
-                var history = DailySigninService.ReadHistory(DailySigninService.AccountDirectory(uid));
+                var history = CollectDailySigninHistory();
                 dailySigninHistory.Text = history.Count == 0 ? "暂无签到记录。点击“立即签到”执行今天的两项签到。" : string.Join(Environment.NewLine + Environment.NewLine, history.AsEnumerable().Reverse().Select(item => item.ToString()));
-                // Scheduled runs write persistent messages even when the main window is closed.
-                foreach (var item in history.Skip(Math.Max(0, history.Count - 20))) if (dailySigninSeen.Add(item.Id)) {
-                    ReportTask(item.Task, item.Phase, item.Time + " · " + item.Detail);
-                    dailySigninStatus.Text = item.Time + " · " + item.Phase + "：" + item.Detail;
-                }
             } catch (Exception ex) { dailySigninHistory.Text = DailySigninService.SafeError(ex); }
         }
         private void StopDailySignin() { dailySigninTimer.Stop(); dailySigninTimer.Dispose(); }

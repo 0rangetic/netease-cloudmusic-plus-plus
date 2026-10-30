@@ -37,6 +37,13 @@ namespace NeteaseToolbox
         private int multiListenClientPid;
         private long multiListenBridgeLogStart;
 
+        // 原生 WPF 页面读取的状态缓存。业务逻辑仍全部留在本文件，MultiListenView 只通过
+        // Toolbox.MultiListenBridge.cs 中带 MultiListen 前缀的快照/动作方法访问，避免复制逻辑。
+        private string multiListenStatusCache = "正在检查补丁状态…";
+        private string multiListenDetailCache = "";
+        private string multiListenErrorCache = "";
+        private readonly List<MultiListenMessageEntry> multiListenMessageCache = new List<MultiListenMessageEntry>();
+
         private string multiListenRoot {
             get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"NeteaseToolbox\MultiListen"); }
         }
@@ -81,7 +88,7 @@ namespace NeteaseToolbox
             var state = new FlowLayoutPanel {
                 Name = "MultiListenState", Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false
             };
-            multiListenStatus.ForeColor = muted; multiListenStatus.Text = "正在检查补丁状态…";
+            multiListenStatus.ForeColor = muted; SetMultiListenStatusText(multiListenStatusCache);
             multiListenDetail.ForeColor = muted; multiListenDetail.Text = "";
             state.Controls.Add(multiListenStatus); state.Controls.Add(multiListenDetail);
             page.Controls.Add(state, 0, 3);
@@ -102,7 +109,8 @@ namespace NeteaseToolbox
         {
             try {
                 if (IsDisposed || multiListenBusy) return;
-                if (multiListenPage == null || !multiListenPage.Visible) return;
+                // 原生 WPF 页面显示时也要继续后台探测；WinForms 页面仍按可见性判断。
+                if (!multiListenWpfActive && (multiListenPage == null || !multiListenPage.Visible)) return;
                 await RefreshMultiListenStatus(false);
             } catch (Exception ex) { ReportTask("多人一起听", "失败", "状态刷新异常：" + ex.Message); }
         }
@@ -112,7 +120,7 @@ namespace NeteaseToolbox
             if (multiListenBusy || IsDisposed) return;
             multiListenBusy = true; UpdateMultiListenButtons();
             if (announce) {
-                multiListenStatus.Text = "正在检查补丁状态…";
+                SetMultiListenStatusText("正在检查补丁状态…");
                 ReportTask("多人一起听", "开始", "正在读取当前客户端的补丁状态。");
             }
             try {
@@ -120,7 +128,7 @@ namespace NeteaseToolbox
                 if (IsDisposed) return;
                 if (probe.Item1) {
                     RenderMultiListen(probe.Item2, null);
-                    if (announce) ReportTask("多人一起听", "完成", "状态已刷新：" + multiListenStatus.Text);
+                    if (announce) ReportTask("多人一起听", "完成", "状态已刷新：" + multiListenStatusCache);
                 } else {
                     RenderMultiListen(null, probe.Item3);
                     if (announce) ReportTask("多人一起听", "失败", "状态刷新失败：" + probe.Item3);
@@ -134,8 +142,9 @@ namespace NeteaseToolbox
         {
             if (multiListenBusy) return;
             multiListenBusy = true; UpdateMultiListenButtons();
-            multiListenStatus.Text = "正在检查客户端并连接补丁…";
-            multiListenDetail.Text = "无需退出网易云；首次建立进程内通道约需 30 秒，请稍候。";
+            multiListenErrorCache = "";
+            SetMultiListenStatusText("正在检查客户端并连接补丁…");
+            SetMultiListenDetailText("无需退出网易云；首次建立进程内通道约需 30 秒，请稍候。");
             ReportTask("多人一起听", "开始", "正在检查补丁组件及客户端版本；网易云已运行时直接接入，首次连接约需 30 秒。");
             string startupProblem = null;
             Process bridgeProcess = null;
@@ -147,7 +156,7 @@ namespace NeteaseToolbox
                     && !MultiListenFlag(probe.Item2, "bridgeDisconnected");
                 if (alreadyInstalled && MultiListenConnectionReady(probe.Item2)) status = probe.Item2;
                 if (status == null) {
-                    multiListenStatus.Text = "正在连接网易云并加载补丁…";
+                    SetMultiListenStatusText("正在连接网易云并加载补丁…");
                     if (!alreadyInstalled) bridgeProcess = StartMultiListenBridge();
                     var deadline = DateTime.UtcNow.AddSeconds(65);
                     while (DateTime.UtcNow < deadline) {
@@ -168,6 +177,7 @@ namespace NeteaseToolbox
                     ReportTask("多人一起听", "部分失败", "补丁已安装，但邀请点击入口未连接；请在网易云面板里用“读取私信邀请”或直接粘贴邀请链接。");
             } catch (Exception ex) {
                 startupProblem = ex.Message;
+                multiListenErrorCache = startupProblem;
                 ReportTask("多人一起听", "失败", ex.Message);
             } finally {
                 if (bridgeProcess != null) bridgeProcess.Dispose();
@@ -179,8 +189,11 @@ namespace NeteaseToolbox
             if (final != null) {
                 if (final.Item1) {
                     RenderMultiListen(final.Item2, null);
-                    if (startupProblem != null) multiListenDetail.Text = startupProblem;
+                    if (startupProblem != null) { SetMultiListenDetailText(startupProblem); multiListenErrorCache = startupProblem; }
                 } else RenderMultiListen(null, startupProblem ?? final.Item3);
+            } else if (startupProblem != null) {
+                SetMultiListenStatusText("未连接：" + startupProblem);
+                SetMultiListenDetailText("请打开日志文件夹查看 bridge.log 中的具体错误后重试。");
             }
             UpdateMultiListenButtons();
         }
@@ -190,14 +203,25 @@ namespace NeteaseToolbox
             if (multiListenBusy) return;
             if (MessageBox.Show(DialogOwner, "确定退出多人房间并停用补丁吗？\n网易云客户端会保持运行；之后可以在本页或网易云面板重新启动。",
                 "多人一起听", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            await StopMultiListenConfirmed();
+        }
+
+        // 原生 WPF 页面自行确认后再调用；这里只执行业务动作。
+        private async Task StopMultiListenConfirmed()
+        {
+            if (multiListenBusy) return;
             multiListenBusy = true; UpdateMultiListenButtons();
+            multiListenErrorCache = "";
             ReportTask("多人一起听", "开始", "正在退出房间并停用补丁。");
+            string stopProblem = null;
             try {
                 var result = await Task.Run(() => RunMultiListenControl("shutdown", 30000));
                 if (result.Item1 != 0) throw new InvalidOperationException(result.Item3.Length > 0
                     ? TrimMultiListenText(result.Item3) : "停用脚本返回退出码 " + result.Item1 + "。");
                 ReportTask("多人一起听", "完成", "已退出房间并停用补丁。");
             } catch (Exception ex) {
+                stopProblem = ex.Message;
+                multiListenErrorCache = stopProblem;
                 ReportTask("多人一起听", "失败", ex.Message);
             }
             Tuple<bool, Dictionary<string, object>, string> final = null;
@@ -205,7 +229,10 @@ namespace NeteaseToolbox
             multiListenBusy = false;
             if (IsDisposed) return;
             if (final != null) {
-                if (final.Item1) RenderMultiListen(final.Item2, null); else RenderMultiListen(null, final.Item3);
+                if (final.Item1) {
+                    RenderMultiListen(final.Item2, null);
+                    if (stopProblem != null) { SetMultiListenDetailText(stopProblem); multiListenErrorCache = stopProblem; }
+                } else RenderMultiListen(null, stopProblem ?? final.Item3);
             }
             UpdateMultiListenButtons();
         }
@@ -416,14 +443,17 @@ namespace NeteaseToolbox
             multiListenMessages.BackColor = panel;
             multiListenMessages.ForeColor = ink;
             multiListenMessages.Text = "";
+            multiListenMessageCache.Clear();
             if (problem != null) {
-                multiListenStatus.Text = "未连接：" + problem;
-                multiListenDetail.Text = "点击“启动并连接”后，这里会显示补丁版本、房间人数与同步状态。";
+                multiListenErrorCache = problem;
+                SetMultiListenStatusText("未连接：" + problem);
+                SetMultiListenDetailText("点击“启动并连接”后，这里会显示补丁版本、房间人数与同步状态。");
                 return;
             }
+            multiListenErrorCache = "";
             if (!MultiListenFlag(data, "installed")) {
-                multiListenStatus.Text = "网易云调试通道已连接，补丁尚未运行。";
-                multiListenDetail.Text = "点击“启动并连接”安装补丁。";
+                SetMultiListenStatusText("网易云调试通道已连接，补丁尚未运行。");
+                SetMultiListenDetailText("点击“启动并连接”安装补丁。");
                 return;
             }
             multiListenInstalled = true;
@@ -433,14 +463,14 @@ namespace NeteaseToolbox
                 ? "房间 " + roomId + " · 在线 " + RecallValue(data, "members") + " 人 · "
                     + (MultiListenFlag(data, "stale") ? "同步中断" : MultiListenFlag(data, "syncing") ? "跟随房间" : "本机暂停")
                 : "尚未连接房间";
-            multiListenStatus.Text = "补丁 " + version + " · " + state + " · 邀请点击入口"
-                + (MultiListenFlag(data, "clickHook") ? "已连接" : "未连接") + "。";
+            SetMultiListenStatusText("补丁 " + version + " · " + state + " · 邀请点击入口"
+                + (MultiListenFlag(data, "clickHook") ? "已连接" : "未连接") + "。");
             var detail = new StringBuilder();
             var notice = RecallValue(data, "notice");
             if (notice.Length > 0) detail.Append(notice);
             var songId = RecallValue(data, "songId");
             if (songId.Length > 0) { if (detail.Length > 0) detail.Append("；"); detail.Append("房间歌曲 " + songId); }
-            multiListenDetail.Text = detail.ToString();
+            SetMultiListenDetailText(detail.ToString());
             var messages = data.ContainsKey("messages") ? data["messages"] as ArrayList : null;
             if (messages != null) {
                 var lines = new List<string>();
@@ -449,11 +479,27 @@ namespace NeteaseToolbox
                     if (item == null) continue;
                     var time = RecallValue(item, "time");
                     var message = RecallValue(item, "message");
-                    lines.Add(time + "  " + (MultiListenFlag(item, "error") ? "！" : "") + message);
+                    var isError = MultiListenFlag(item, "error");
+                    multiListenMessageCache.Add(new MultiListenMessageEntry(time, message, isError));
+                    lines.Add(time + "  " + (isError ? "！" : "") + message);
                 }
+                if (multiListenMessageCache.Count > 10)
+                    multiListenMessageCache.RemoveRange(0, multiListenMessageCache.Count - 10);
                 if (lines.Count > 10) lines.RemoveRange(0, lines.Count - 10);
                 multiListenMessages.Lines = lines.ToArray();
             }
+        }
+
+        private void SetMultiListenStatusText(string text)
+        {
+            multiListenStatusCache = text ?? "";
+            multiListenStatus.Text = multiListenStatusCache;
+        }
+
+        private void SetMultiListenDetailText(string text)
+        {
+            multiListenDetailCache = text ?? "";
+            multiListenDetail.Text = multiListenDetailCache;
         }
 
         private void UpdateMultiListenButtons()

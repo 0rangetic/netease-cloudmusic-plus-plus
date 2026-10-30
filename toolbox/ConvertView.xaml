@@ -1,0 +1,387 @@
+<UserControl x:Class="NeteaseToolbox.Wpf.ConvertView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="760" d:DesignWidth="1000"
+             Background="Transparent"
+             TextOptions.TextFormattingMode="Display">
+    <UserControl.Resources>
+        <!-- 玻璃卡片：底色/描边由主窗口按玻璃开关与明暗主题动态切换 -->
+        <Style x:Key="GlassCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource ToolboxGlassCardBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolboxGlassCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+        </Style>
+
+        <!-- 卡片顶部柔光：不拦截鼠标，叠加在玻璃底色之上 -->
+        <Style x:Key="GlassCardGlowStyle" TargetType="Border">
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Margin" Value="1" />
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#30FFFFFF" Offset="0" />
+                        <GradientStop Color="#0CFFFFFF" Offset="0.26" />
+                        <GradientStop Color="#00FFFFFF" Offset="0.55" />
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CaptionStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+        </Style>
+
+        <!-- 歌曲表格：表头与单元格保持透明，让玻璃卡片和壁纸透出 -->
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="DataGridColumnHeader">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}"
+                                BorderThickness="0,0,0,1"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="DataGridCell">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="DataGridCell">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <Grid>
+                                <Border x:Name="SelectionTint"
+                                        Background="{DynamicResource SystemControlHighlightAccentBrush}"
+                                        Opacity="0" />
+                                <ContentPresenter Margin="10,0" VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SelectionTint" Property="Opacity" Value="0.08" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="SelectionTint" Property="Opacity" Value="0.22" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="DataGridRow">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="28,20,28,32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 标题与主要操作 -->
+        <Border Style="{StaticResource GlassCardStyle}">
+            <Grid>
+                <Border Style="{StaticResource GlassCardGlowStyle}" />
+                <Grid Margin="20,16,20,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                        <TextBlock Text="音乐转换" FontSize="24" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                        <TextBlock Margin="0,6,0,0" FontSize="13" LineHeight="21" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                   Text="把网易云 NCM 缓存转换为可播放的音频与歌词文件，输出保留原有子目录结构；转换与封面提取都不删除源文件。" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="ChooseInputButton" Content="选择音乐目录" Padding="14,6" Margin="0,0,8,0"
+                                Click="OnChooseInputClick" />
+                        <Button x:Name="RescanButton" Content="重新扫描" Padding="14,6" Margin="0,0,8,0"
+                                Click="OnRescanClick" />
+                        <Button x:Name="ConvertAllButton" Content="转换全部新歌" Padding="16,6"
+                                Style="{DynamicResource AccentButtonStyle}" Click="OnConvertAllClick" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- 目录与数量概览 -->
+        <Border Grid.Row="1" Style="{StaticResource GlassCardStyle}" Margin="0,12,0,12">
+            <Grid Margin="18,12,18,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                    <TextBlock Text="音乐目录" Style="{StaticResource CaptionStyle}" />
+                    <TextBlock x:Name="InputFolderText" Text="尚未选择" FontSize="13" Margin="0,3,0,0"
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                </StackPanel>
+
+                <Border Grid.Column="1" Background="{DynamicResource SystemControlStrokeColorCardStrokeBrush}" Margin="0,2,0,2" />
+
+                <StackPanel Grid.Column="2" Margin="16,0,16,0">
+                    <TextBlock Text="输出位置" Style="{StaticResource CaptionStyle}" />
+                    <TextBlock x:Name="OutputText" Text="输出位置：默认（每首歌曲目录下的 unlock 文件夹）" FontSize="13"
+                               Margin="0,3,0,0" TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                </StackPanel>
+
+                <Border Grid.Column="3" Background="{DynamicResource SystemControlStrokeColorCardStrokeBrush}" Margin="0,2,0,2" />
+
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                    <StackPanel Margin="0,0,20,0">
+                        <TextBlock Text="待转换" Style="{StaticResource CaptionStyle}" />
+                        <TextBlock x:Name="PendingCountText" Text="0 首" FontSize="20" FontWeight="Bold" Margin="0,2,0,0"
+                                   Foreground="{DynamicResource SystemControlHighlightAccentBrush}" />
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="已转换" Style="{StaticResource CaptionStyle}" />
+                        <TextBlock x:Name="ConvertedCountText" Text="0 首" FontSize="20" FontWeight="Bold" Margin="0,2,0,0"
+                                   Foreground="#2A9D8F" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 歌曲列表与操作 -->
+        <Border Grid.Row="2" Style="{StaticResource GlassCardStyle}" MinHeight="180">
+            <Grid>
+                <Border Style="{StaticResource GlassCardGlowStyle}" />
+                <Grid Margin="16,10,16,12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TabControl x:Name="SongTabs" Style="{DynamicResource DefaultTabControlStyle}"
+                                Background="Transparent" BorderThickness="0"
+                                SelectionChanged="OnTabSelectionChanged">
+                        <TabItem x:Name="PendingTab" Header="待转换歌曲" FontSize="14">
+                            <Grid Margin="0,6,0,0">
+                                <DataGrid x:Name="PendingGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                          CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="False"
+                                          CanUserResizeRows="False" CanUserSortColumns="False"
+                                          SelectionMode="Extended" SelectionUnit="FullRow" FontSize="13"
+                                          HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                          HorizontalGridLinesBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}"
+                                          Background="Transparent" RowBackground="Transparent"
+                                          BorderThickness="0" RowHeaderWidth="0" RowHeight="34"
+                                          HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                                          EnableRowVirtualization="True"
+                                          VirtualizingPanel.IsVirtualizing="True"
+                                          VirtualizingPanel.VirtualizationMode="Recycling"
+                                          SelectionChanged="OnPendingSelectionChanged">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="歌曲" Binding="{Binding Title}" Width="2*">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="VerticalAlignment" Value="Center" />
+                                                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                                    <Setter Property="ToolTip" Value="{Binding FullPath}" />
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="所在目录" Binding="{Binding Directory}" Width="3*">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="VerticalAlignment" Value="Center" />
+                                                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                                    <Setter Property="ToolTip" Value="{Binding Directory}" />
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                                <TextBlock x:Name="PendingEmptyText" Text="暂无待转换歌曲。选择音乐目录后会自动扫描 NCM 缓存。"
+                                           FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           IsHitTestVisible="False" TextWrapping="Wrap" MaxWidth="420"
+                                           TextAlignment="Center" Visibility="Collapsed"
+                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                            </Grid>
+                        </TabItem>
+                        <TabItem x:Name="ConvertedTab" Header="已转换歌曲" FontSize="14">
+                            <Grid Margin="0,6,0,0">
+                                <DataGrid x:Name="ConvertedGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                          CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="False"
+                                          CanUserResizeRows="False" CanUserSortColumns="False"
+                                          SelectionMode="Extended" SelectionUnit="FullRow" FontSize="13"
+                                          HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                          HorizontalGridLinesBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}"
+                                          Background="Transparent" RowBackground="Transparent"
+                                          BorderThickness="0" RowHeaderWidth="0" RowHeight="34"
+                                          HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                                          EnableRowVirtualization="True"
+                                          VirtualizingPanel.IsVirtualizing="True"
+                                          VirtualizingPanel.VirtualizationMode="Recycling"
+                                          SelectionChanged="OnConvertedSelectionChanged">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="歌曲" Binding="{Binding Title}" Width="2*">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="VerticalAlignment" Value="Center" />
+                                                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                                    <Setter Property="ToolTip" Value="{Binding FullPath}" />
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="输出目录" Binding="{Binding Directory}" Width="3*">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="VerticalAlignment" Value="Center" />
+                                                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                                    <Setter Property="ToolTip" Value="{Binding Directory}" />
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                                <TextBlock x:Name="ConvertedEmptyText" Text="还没有已转换的歌曲。转换完成后可以在这里重新转换或提取封面。"
+                                           FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           IsHitTestVisible="False" TextWrapping="Wrap" MaxWidth="420"
+                                           TextAlignment="Center" Visibility="Collapsed"
+                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
+
+                    <Grid Grid.Row="1" Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="SelectionHintText" Text="未选择歌曲 · 按住 Ctrl 或 Shift 可多选"
+                                   FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button x:Name="OpenOutputButton" Content="打开最新输出" Padding="12,6" Margin="0,0,8,0"
+                                    Click="OnOpenOutputClick" />
+                            <Button x:Name="ExtractCoverButton" Content="提取选中封面" Padding="12,6" Margin="0,0,8,0"
+                                    Click="OnExtractCoverClick" />
+                            <Button x:Name="ConvertSelectedButton" Content="转换选中歌曲" Padding="14,6"
+                                    Style="{DynamicResource AccentButtonStyle}" Click="OnConvertSelectedClick" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- 错误、警告与任务反馈 -->
+        <StackPanel Grid.Row="3">
+            <Border x:Name="ErrorPanel" Visibility="Collapsed" CornerRadius="8" Padding="14,10" Margin="0,10,0,0"
+                    Background="#26E76F51" BorderBrush="#59E76F51" BorderThickness="1">
+                <TextBlock x:Name="ErrorText" FontSize="13" TextWrapping="Wrap"
+                           Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+            </Border>
+            <Border x:Name="WarningPanel" Visibility="Collapsed" CornerRadius="8" Padding="14,10" Margin="0,10,0,0"
+                    Background="#26E9963E" BorderBrush="#59E9963E" BorderThickness="1">
+                <TextBlock x:Name="WarningText" FontSize="13" TextWrapping="Wrap"
+                           Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+            </Border>
+
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,10,0,0">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <Grid Margin="18,12,18,12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Ellipse x:Name="StatusDot" Width="8" Height="8" VerticalAlignment="Top" Margin="0,5,0,0"
+                                     Fill="{DynamicResource SystemControlHighlightAccentBrush}" />
+                            <TextBlock x:Name="StatusText" Grid.Column="1" Margin="10,0,0,0" FontSize="13"
+                                       TextWrapping="Wrap"
+                                       Text="就绪：选择音乐目录后会自动扫描，转换进度会显示在这里。"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                            <TextBlock x:Name="BusyText" Grid.Column="2" Text="处理中…" FontSize="12"
+                                       Margin="12,1,0,0" VerticalAlignment="Top" Visibility="Collapsed"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                        </Grid>
+
+                        <ProgressBar x:Name="BusyBar" Grid.Row="1" IsIndeterminate="True" Height="3" Margin="0,8,0,0"
+                                     Visibility="Collapsed" />
+
+                        <StackPanel Grid.Row="2" Margin="0,10,0,0">
+                            <TextBlock Text="最近转换任务" Style="{StaticResource CaptionStyle}" />
+                            <TextBlock x:Name="TaskEmptyText" Text="暂无转换任务消息。"
+                                       FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                            <ScrollViewer x:Name="TaskScroll" MaxHeight="78" Margin="0,4,0,0"
+                                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl x:Name="TaskList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="60" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Time}" FontSize="11" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                                                <TextBlock Grid.Column="1" FontSize="12" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}">
+                                                    <Run Text="{Binding Task}" />
+                                                    <Run Text=" · " />
+                                                    <Run Text="{Binding Phase}" Foreground="{Binding PhaseBrush}" />
+                                                </TextBlock>
+                                                <TextBlock Grid.Column="2" Text="{Binding Detail}" FontSize="12"
+                                                           Margin="8,0,0,0" VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Text}"
+                                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </Grid>
+</UserControl>

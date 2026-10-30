@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -130,7 +131,7 @@ namespace NeteaseToolbox.Wpf
                         {
                             if (profileDict.TryGetValue("generatedAt", out var genAt) && genAt != null)
                             {
-                                AsOfTextBlock.Text = $"档案更新时间: {genAt}";
+                                AsOfTextBlock.Text = "更新于 " + FormatProfileGeneratedAt(genAt);
                             }
 
                             if (profileDict.TryGetValue("songs", out var songsObj) && songsObj is System.Collections.ArrayList songList)
@@ -147,7 +148,7 @@ namespace NeteaseToolbox.Wpf
                                             Artist = song.ContainsKey("artist") ? song["artist"]?.ToString() : "",
                                             Album = song.ContainsKey("album") ? song["album"]?.ToString() : "",
                                             PlayCount = song.ContainsKey("playCount") && song["playCount"] != null ? Convert.ToInt64(song["playCount"]) : 0,
-                                            FirstListen = song.ContainsKey("firstListenTime") ? song["firstListenTime"]?.ToString() : "",
+                                            FirstListen = song.ContainsKey("firstListenAt") && song["firstListenAt"] != null ? FormatEpochMs(song["firstListenAt"]) : "",
                                             LikedAt = song.ContainsKey("likedAt") && song["likedAt"] != null ? FormatEpochMs(song["likedAt"]) : ""
                                         };
                                         AllSongs.Add(detail);
@@ -196,6 +197,20 @@ namespace NeteaseToolbox.Wpf
                 return dt.ToString("yyyy-MM-dd HH:mm");
             }
             catch { return ""; }
+        }
+
+        private static string FormatProfileGeneratedAt(object value)
+        {
+            if (value == null) return "";
+            string raw = value.ToString();
+            if (string.IsNullOrWhiteSpace(raw)) return "";
+
+            DateTimeOffset parsed;
+            if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out parsed))
+            {
+                return parsed.ToLocalTime().ToString("MM.dd，HH:mm", CultureInfo.InvariantCulture);
+            }
+            return raw;
         }
 
         private async Task<string> RunPythonAnalysisAsync(string script, string scope, string profilePath, string genreDb)
@@ -370,6 +385,10 @@ namespace NeteaseToolbox.Wpf
                                     else if (meta.Contains("尚未生成")) insightStatus = "未生成解读";
                                 }
                             }
+                            if (string.Equals(insightStatus, "已生成解读", StringComparison.Ordinal))
+                            {
+                                insightStatus += ResolveInsightTimestampSuffix(scope, html, latestReport);
+                            }
                             AiInsight.StatusText = insightStatus;
                             return;
                         }
@@ -377,12 +396,104 @@ namespace NeteaseToolbox.Wpf
                 }
 
                 AiInsight.StatusText = "未生成解读";
-                AiInsight.Content = "点击右上角“刷新全部画像”，将基于本地规则统计与 AI 接口自动生成最新深度画像解读。";
+                AiInsight.Content = "点击本卡片右上角“刷新画像”或页面顶部“刷新全部画像”，将基于本地规则统计与 AI 接口自动生成最新深度画像解读。";
             }
             catch (Exception ex)
             {
                 AiInsight.StatusText = "读取失败";
                 AiInsight.Content = "读取 AI 画像失败: " + ex.Message;
+            }
+        }
+
+        private string ResolveInsightTimestampSuffix(string scope, string reportHtml, string reportPath)
+        {
+            DateTime? generatedAt = TryReadAiResultUpdatedAt(scope);
+            if (!generatedAt.HasValue) generatedAt = TryReadReportGeneratedAt(reportHtml);
+            if (!generatedAt.HasValue) generatedAt = TryGetReportLastWriteTime(reportPath);
+            return generatedAt.HasValue
+                ? ":" + generatedAt.Value.ToString("MM.dd，HH:mm", CultureInfo.InvariantCulture)
+                : "";
+        }
+
+        private DateTime? TryReadAiResultUpdatedAt(string scope)
+        {
+            try
+            {
+                string statePath = null;
+                foreach (string dir in new[]
+                {
+                    NeteaseAuth.AccountFolder("Profile"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"NeteaseToolbox\Profile")
+                })
+                {
+                    string candidate = Path.Combine(dir, "portrait-ai-results.json");
+                    if (File.Exists(candidate)) { statePath = candidate; break; }
+                }
+                if (statePath == null) return null;
+
+                var state = jsonSerializer.Deserialize<Dictionary<string, object>>(File.ReadAllText(statePath, Encoding.UTF8));
+                if (state == null) return null;
+
+                string key = string.IsNullOrEmpty(scope) ? "all" : scope;
+                if (!state.TryGetValue(key, out var entryObj) || !(entryObj is Dictionary<string, object> entry)) return null;
+
+                string status = entry.ContainsKey("status") ? entry["status"]?.ToString() : "";
+                if (!string.Equals(status, "ready", StringComparison.OrdinalIgnoreCase)) return null;
+
+                string updatedAt = entry.ContainsKey("updatedAt") ? entry["updatedAt"]?.ToString() : "";
+                return ParseLocalTimestamp(updatedAt);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static DateTime? TryReadReportGeneratedAt(string reportHtml)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(reportHtml)) return null;
+                const string marker = "本机生成";
+                int markerIndex = reportHtml.IndexOf(marker, StringComparison.Ordinal);
+                if (markerIndex < 0) return null;
+
+                int colonIndex = reportHtml.IndexOfAny(new[] { '：', ':' }, markerIndex + marker.Length);
+                if (colonIndex < 0 || colonIndex - markerIndex > marker.Length + 2) return null;
+
+                int end = colonIndex + 1;
+                while (end < reportHtml.Length && reportHtml[end] != '<' && reportHtml[end] != '\r' && reportHtml[end] != '\n')
+                {
+                    end++;
+                }
+
+                string raw = System.Net.WebUtility.HtmlDecode(reportHtml.Substring(colonIndex + 1, end - colonIndex - 1)).Trim();
+                return ParseLocalTimestamp(raw);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static DateTime? ParseLocalTimestamp(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            DateTimeOffset parsed;
+            if (!DateTimeOffset.TryParse(value.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out parsed)) return null;
+            return parsed.ToLocalTime().DateTime;
+        }
+
+        private static DateTime? TryGetReportLastWriteTime(string reportPath)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(reportPath) || !File.Exists(reportPath)) return null;
+                return File.GetLastWriteTime(reportPath);
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -437,7 +548,18 @@ namespace NeteaseToolbox.Wpf
 
         private async void OnRefreshAllPortraitsClick(object sender, RoutedEventArgs e)
         {
+            await RefreshAllPortraitsAsync();
+        }
+
+        private async void OnRefreshInsightClick(object sender, RoutedEventArgs e)
+        {
+            await RefreshAllPortraitsAsync();
+        }
+
+        private async Task RefreshAllPortraitsAsync()
+        {
             RefreshAllButton.IsEnabled = false;
+            if (RefreshInsightButton != null) RefreshInsightButton.IsEnabled = false;
             ReportTask("全部画像分析", "开始", "正在刷新两类画像、规则统计与 AI 报告…");
             try
             {
@@ -452,6 +574,7 @@ namespace NeteaseToolbox.Wpf
             finally
             {
                 RefreshAllButton.IsEnabled = true;
+                if (RefreshInsightButton != null) RefreshInsightButton.IsEnabled = true;
             }
         }
 

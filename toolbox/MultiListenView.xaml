@@ -1,0 +1,185 @@
+<UserControl x:Class="NeteaseToolbox.Wpf.MultiListenView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:ui="http://schemas.modernwpf.com/2019"
+             mc:Ignorable="d"
+             d:DesignHeight="760" d:DesignWidth="1000"
+             Background="Transparent">
+    <UserControl.Resources>
+        <!-- 玻璃卡片：底色/描边由主窗口按玻璃开关与明暗主题动态切换，壁纸真实透出 -->
+        <Style x:Key="GlassCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource ToolboxGlassCardBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolboxGlassCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+        </Style>
+
+        <!-- 卡片顶部柔光：不拦截鼠标，叠加在玻璃底色之上 -->
+        <Style x:Key="GlassCardGlowStyle" TargetType="Border">
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Margin" Value="1" />
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#30FFFFFF" Offset="0" />
+                        <GradientStop Color="#0CFFFFFF" Offset="0.26" />
+                        <GradientStop Color="#00FFFFFF" Offset="0.55" />
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CardHeadingStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+        </Style>
+
+        <Style x:Key="CardHintStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+        </Style>
+
+        <Style x:Key="MessageTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsError}" Value="True">
+                    <Setter Property="Foreground" Value="#E76F51" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,20,28,32">
+            <!-- 标题与能力边界 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,20">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,16,20,16">
+                        <TextBlock Text="多人一起听" FontSize="24" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                        <TextBlock Margin="0,6,0,0" FontSize="13" LineHeight="21" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                   Text="让电脑加入手机端创建的官方多人房间，并跟随房间里的歌曲与进度。&#10;可以先开网易云，再点“启动并连接”；无需退出客户端。网易云未运行时，工具箱会自动启动；首次连接约需 30 秒。&#10;朋友用官方 App 建房并通过私信发来多人邀请后，点击邀请卡片，或在网易云右上角补丁面板粘贴邀请链接。&#10;支持恢复已加入的房间、跟随换歌与进度、本机暂停和退出；不支持建房、推歌、共同队列与聊天。" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 连接与操作 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,12">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,18,20,18">
+                        <TextBlock Text="连接与补丁" Style="{StaticResource CardHeadingStyle}" />
+                        <TextBlock Style="{StaticResource CardHintStyle}" Margin="0,3,0,0"
+                                   Text="启动、连接和停用都在后台执行，按钮会显示忙碌状态。本页每 1.5 秒刷新一次状态，每次操作完成后立即刷新；错误会显示在状态行下方。" />
+
+                        <WrapPanel Margin="0,14,0,0" Orientation="Horizontal">
+                            <Button x:Name="StartButton" Content="启动并连接" Style="{DynamicResource AccentButtonStyle}"
+                                    Padding="16,6" Margin="0,0,8,0" Click="OnStartClick" />
+                            <Button x:Name="RefreshButton" Content="刷新状态"
+                                    Padding="16,6" Margin="0,0,8,0" Click="OnRefreshClick" />
+                            <Button x:Name="StopButton" Content="退出并停用"
+                                    Padding="16,6" Margin="0,0,8,0" Click="OnStopClick" />
+                            <Button x:Name="LogFolderButton" Content="日志文件夹"
+                                    Padding="14,6" Click="OnOpenLogClick" />
+                        </WrapPanel>
+
+                        <StackPanel x:Name="BusyPanel" Orientation="Horizontal" Margin="0,12,0,0"
+                                    Visibility="Collapsed">
+                            <ui:ProgressRing IsActive="True" Width="16" Height="16" Margin="0,0,8,0"
+                                             VerticalAlignment="Center" />
+                            <TextBlock x:Name="BusyText" FontSize="12" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        </StackPanel>
+
+                        <TextBlock Style="{StaticResource CardHintStyle}" Margin="0,12,0,0"
+                                   Text="退出并停用会关闭当前房间并卸载补丁，网易云客户端保持运行；之后可以在本页或网易云面板重新启动。" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 状态行 -->
+            <Border Background="{DynamicResource ToolboxGlassCardBrush}"
+                    BorderBrush="{DynamicResource ToolboxGlassCardBorderBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="14,10" Margin="0,0,0,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Ellipse x:Name="StatusDot" Width="8" Height="8" VerticalAlignment="Top" Margin="0,5,0,0"
+                             Fill="{DynamicResource SystemControlHighlightAccentBrush}" />
+                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                        <TextBlock x:Name="StatusTextBlock" Text="正在检查补丁状态…" FontSize="13" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        <TextBlock x:Name="DetailTextBlock" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,0"
+                                   Visibility="Collapsed"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 错误面板：失败与部分失败都在页面内可见 -->
+            <Border x:Name="ErrorPanel" Visibility="Collapsed" CornerRadius="8" Padding="14,10" Margin="0,0,0,12"
+                    Background="#26E76F51" BorderBrush="#59E76F51" BorderThickness="1">
+                <TextBlock x:Name="ErrorTextBlock" FontSize="13" TextWrapping="Wrap"
+                           Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+            </Border>
+
+            <!-- 补丁消息 -->
+            <Border Style="{StaticResource GlassCardStyle}">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,18,20,16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="补丁消息" Style="{StaticResource CardHeadingStyle}" />
+                            <TextBlock x:Name="MessageCountText" Grid.Column="1" FontSize="12" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        </Grid>
+                        <TextBlock Style="{StaticResource CardHintStyle}" Margin="0,3,0,0"
+                                   Text="显示补丁最近 10 条消息，按发生顺序排列；带 ！ 的记录表示出错。" />
+
+                        <TextBlock x:Name="MessagesEmptyText" Text="暂无补丁消息。连接后这里会显示补丁版本、房间状态与错误记录。"
+                                   FontSize="13" Margin="0,14,0,4" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+
+                        <ScrollViewer x:Name="MessagesScroll" MaxHeight="360" Margin="0,10,0,0"
+                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="MessageList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}"
+                                                BorderThickness="0,0,0,1" Padding="2,9">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="76" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Time}" FontSize="12" VerticalAlignment="Top"
+                                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Text}"
+                                                           Style="{StaticResource MessageTextStyle}" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

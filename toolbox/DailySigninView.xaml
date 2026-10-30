@@ -1,0 +1,199 @@
+<UserControl x:Class="NeteaseToolbox.Wpf.DailySigninView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:ui="http://schemas.modernwpf.com/2019"
+             mc:Ignorable="d"
+             d:DesignHeight="760" d:DesignWidth="1000"
+             Background="Transparent">
+    <UserControl.Resources>
+        <!-- 玻璃卡片：底色/描边由主窗口按玻璃开关与明暗主题动态切换 -->
+        <Style x:Key="GlassCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource ToolboxGlassCardBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolboxGlassCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+        </Style>
+
+        <!-- 卡片顶部柔光：不拦截鼠标，叠加在玻璃底色之上 -->
+        <Style x:Key="GlassCardGlowStyle" TargetType="Border">
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Margin" Value="1" />
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#30FFFFFF" Offset="0" />
+                        <GradientStop Color="#0CFFFFFF" Offset="0.26" />
+                        <GradientStop Color="#00FFFFFF" Offset="0.55" />
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="HistoryPhaseStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Phase}" Value="完成">
+                    <Setter Property="Foreground" Value="#2A9D8F" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Phase}" Value="部分失败">
+                    <Setter Property="Foreground" Value="#E9963E" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Phase}" Value="失败">
+                    <Setter Property="Foreground" Value="#E76F51" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Phase}" Value="开始">
+                    <Setter Property="Foreground" Value="#D2A62A" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,20,28,32">
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,20">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,16,20,16">
+                        <TextBlock Text="每日签到" FontSize="24" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                        <TextBlock Margin="0,6,0,0" FontSize="13" LineHeight="21" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                   Text="使用当前网易云账号，分别完成云贝签到和黑胶乐签。&#10;按北京时间执行；错过时间会在登录 Windows 或打开工具箱后补签。关闭工具箱后，Windows 计划任务仍可执行；电脑需联网且当前用户已登录。" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 设置卡片 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,20,0,12">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,18,20,18">
+                        <TextBlock Text="自动签到" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                        <TextBlock Text="开启后每天按设定时间签到；保存设置会同步更新 Windows 计划任务。"
+                                   FontSize="12" Margin="0,3,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+
+                        <WrapPanel Margin="0,14,0,0" Orientation="Horizontal">
+                            <ui:ToggleSwitch x:Name="EnabledSwitch" Header="每天自动签到" OnContent="开启" OffContent="关闭"
+                                             Margin="0,0,28,0" VerticalAlignment="Center" Toggled="OnSettingToggled" />
+                            <TextBlock Text="签到时间" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                            <ComboBox x:Name="HourCombo" Width="68" VerticalAlignment="Center"
+                                      SelectionChanged="OnSettingSelectionChanged" />
+                            <TextBlock Text=":" FontSize="15" Margin="5,0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                            <ComboBox x:Name="MinuteCombo" Width="68" VerticalAlignment="Center"
+                                      SelectionChanged="OnSettingSelectionChanged" />
+                            <TextBlock Text="（北京时间）" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                        </WrapPanel>
+
+                        <Grid Margin="0,18,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="保存后立即生效；自动签到和计划任务的结果都会显示在下方状态行。"
+                                       FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button x:Name="SaveButton" Content="保存设置" Padding="16,6" Margin="0,0,8,0"
+                                        Click="OnSaveClick" />
+                                <Button x:Name="RunButton" Content="立即签到" Style="{DynamicResource AccentButtonStyle}"
+                                        Padding="16,6" Click="OnRunClick" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 状态行 -->
+            <Border Background="{DynamicResource ToolboxGlassCardBrush}"
+                    BorderBrush="{DynamicResource ToolboxGlassCardBorderBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="14,9" Margin="0,0,0,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Ellipse x:Name="StatusDot" Width="8" Height="8" VerticalAlignment="Center"
+                         Fill="{DynamicResource SystemControlHighlightAccentBrush}" />
+                <TextBlock x:Name="StatusTextBlock" Grid.Column="1" Text="正在读取签到配置…"
+                           Margin="10,0,0,0" FontSize="13" TextWrapping="Wrap"
+                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            </Grid>
+            </Border>
+
+            <Border x:Name="ErrorPanel" Visibility="Collapsed" CornerRadius="8" Padding="14,10" Margin="0,0,0,12"
+                    Background="#26E76F51" BorderBrush="#59E76F51" BorderThickness="1">
+                <TextBlock x:Name="ErrorTextBlock" FontSize="13" TextWrapping="Wrap"
+                           Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+            </Border>
+
+            <!-- 历史卡片 -->
+            <Border Style="{StaticResource GlassCardStyle}">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,18,20,16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="签到记录" FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                            <TextBlock x:Name="HistoryCountText" Grid.Column="1" FontSize="12"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        </Grid>
+                        <TextBlock Text="历史记录保存在本机，最新在前。" FontSize="12" Margin="0,3,0,0"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+
+                        <TextBlock x:Name="HistoryEmptyText" Text="暂无签到记录。点击“立即签到”执行今天的两项签到。"
+                                   FontSize="13" Margin="0,14,0,4" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+
+                        <ScrollViewer x:Name="HistoryScroll" MaxHeight="380" Margin="0,10,0,0"
+                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="HistoryList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}"
+                                                BorderThickness="0,0,0,1" Padding="2,10">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="150" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Time}" FontSize="12" VerticalAlignment="Top"
+                                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                                                <StackPanel Grid.Column="1">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="{Binding Task}" FontSize="13" FontWeight="SemiBold"
+                                                                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                                                        <TextBlock Text=" · " FontSize="13"
+                                                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                                        <TextBlock Text="{Binding Phase}" Style="{StaticResource HistoryPhaseStyle}" />
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding Detail}" FontSize="12" TextWrapping="Wrap"
+                                                               Margin="0,3,0,0"
+                                                               Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

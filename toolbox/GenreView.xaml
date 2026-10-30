@@ -1,0 +1,379 @@
+<UserControl x:Class="NeteaseToolbox.Wpf.GenreView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:ui="http://schemas.modernwpf.com/2019"
+             mc:Ignorable="d"
+             d:DesignHeight="880" d:DesignWidth="1060"
+             Background="Transparent">
+    <UserControl.Resources>
+        <!-- 玻璃卡片：底色/描边由主窗口按玻璃开关与明暗主题动态切换 -->
+        <Style x:Key="GlassCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource ToolboxGlassCardBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolboxGlassCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+        </Style>
+
+        <!-- 卡片顶部柔光：不拦截鼠标，叠加在玻璃底色之上 -->
+        <Style x:Key="GlassCardGlowStyle" TargetType="Border">
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Margin" Value="1" />
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#30FFFFFF" Offset="0" />
+                        <GradientStop Color="#0CFFFFFF" Offset="0.26" />
+                        <GradientStop Color="#00FFFFFF" Offset="0.55" />
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 指标小卡片 -->
+        <Style x:Key="MetricCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource ToolboxGlassCardBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolboxGlassCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="18,14" />
+        </Style>
+
+        <!-- 胶囊平滑占比条 -->
+        <Style x:Key="CapsuleProgressStyle" TargetType="ProgressBar">
+            <Setter Property="Height" Value="8" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlHighlightAccentBrush}" />
+            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundBaseLowBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid ClipToBounds="True">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="4" />
+                            <Border x:Name="PART_Track" CornerRadius="4" ClipToBounds="True">
+                                <Border x:Name="PART_Indicator"
+                                        Background="{TemplateBinding Foreground}"
+                                        HorizontalAlignment="Left"
+                                        CornerRadius="4" />
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 任务阶段配色 -->
+        <Style x:Key="PhaseTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Phase}" Value="完成">
+                    <Setter Property="Foreground" Value="#2A9D8F" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Phase}" Value="部分失败">
+                    <Setter Property="Foreground" Value="#E9963E" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Phase}" Value="失败">
+                    <Setter Property="Foreground" Value="#E76F51" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Phase}" Value="开始">
+                    <Setter Property="Foreground" Value="#D2A62A" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,20,28,32">
+            <!-- 标题卡片 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,16">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <Grid Margin="20,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="曲风分析" FontSize="24" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                            <TextBlock Margin="0,6,0,0" FontSize="13" LineHeight="21" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                       Text="读取网易云歌曲百科中的曲风与情绪标签，结果保存在本机曲风数据库。&#10;双击歌曲可在网易云客户端打开播放页面；选中歌曲后可手动修正曲风，或导出 CSV 备份。" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="AnalyzeButton" Content="分析曲风" Style="{DynamicResource AccentButtonStyle}"
+                                    Padding="16,6" Margin="0,0,8,0" Click="OnAnalyzeClick" />
+                            <Button x:Name="ExportButton" Content="导出 CSV" Padding="14,6" Click="OnExportClick" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- 指标卡片 -->
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Style="{StaticResource MetricCardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="已收录歌曲" FontSize="13"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        <TextBlock x:Name="MetricTotalText" Text="--" FontSize="32" FontWeight="Bold" Margin="0,4,0,0"
+                                   Foreground="{DynamicResource SystemControlHighlightAccentBrush}" />
+                        <TextBlock Text="本地转换音频与红心歌单条目" FontSize="12" Margin="0,2,0,0"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2" Style="{StaticResource MetricCardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="已分析" FontSize="13"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        <TextBlock x:Name="MetricAnalyzedText" Text="--" FontSize="32" FontWeight="Bold" Margin="0,4,0,0"
+                                   Foreground="#2A9D8F" />
+                        <TextBlock x:Name="MetricCoverageText" Text="等待扫描歌曲" FontSize="12" Margin="0,2,0,0"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="4" Style="{StaticResource MetricCardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="待分析" FontSize="13"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        <TextBlock x:Name="MetricPendingText" Text="--" FontSize="32" FontWeight="Bold" Margin="0,4,0,0"
+                                   Foreground="#E9963E" />
+                        <TextBlock Text="点击“分析曲风”补齐标签" FontSize="12" Margin="0,2,0,0"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- 状态行 -->
+            <Border Background="{DynamicResource ToolboxGlassCardBrush}"
+                    BorderBrush="{DynamicResource ToolboxGlassCardBorderBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="14,9" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Ellipse x:Name="StatusDot" Width="8" Height="8" VerticalAlignment="Center"
+                             Fill="{DynamicResource SystemControlHighlightAccentBrush}" />
+                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                        <TextBlock x:Name="StatusTextBlock" Text="正在读取曲风分析状态…"
+                                   FontSize="13" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        <TextBlock x:Name="SecondaryStatusText" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                    </StackPanel>
+                    <ProgressBar x:Name="BusyBar" Grid.Column="2" Width="120" Height="3" IsIndeterminate="True"
+                                 Visibility="Collapsed" VerticalAlignment="Center"
+                                 Foreground="{DynamicResource SystemControlHighlightAccentBrush}" />
+                </Grid>
+            </Border>
+
+            <!-- 错误提示（界面内可见） -->
+            <Border x:Name="ErrorPanel" Visibility="Collapsed" CornerRadius="8" Padding="14,10" Margin="0,0,0,10"
+                    Background="#26E76F51" BorderBrush="#59E76F51" BorderThickness="1">
+                <TextBlock x:Name="ErrorTextBlock" FontSize="13" TextWrapping="Wrap"
+                           Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+            </Border>
+
+            <!-- 筛选与创建歌单 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,16">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <Grid Margin="20,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="筛选与创建歌单" FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                            <TextBlock Margin="0,3,0,0" FontSize="12" TextWrapping="Wrap" LineHeight="19"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                                       Text="按情绪或曲风筛选红心歌曲，预览确认后创建新的网易云歌单；标签来自上面的分析结果。" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                            <Button x:Name="EditButton" Content="手动修正曲风" Padding="12,6" Margin="0,0,8,0"
+                                    Click="OnEditClick" />
+                            <Button x:Name="OpenButton" Content="在网易云打开" Padding="12,6" Margin="0,0,8,0"
+                                    Click="OnOpenClick" />
+                            <Button x:Name="PlaylistButton" Content="筛选生成歌单(∠・ω&lt; )⌒★~"
+                                    Style="{DynamicResource AccentButtonStyle}" Padding="20,6" MinWidth="236"
+                                    Click="OnPlaylistClick" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- 曲风分布 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,16">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,16,20,16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="曲风分布" FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                            <TextBlock x:Name="DistributionHintText" Grid.Column="1" FontSize="12"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        </Grid>
+                        <TextBlock x:Name="DistributionEmptyText" Text="还没有曲风标签；点击右上角“分析曲风”后这里会显示出现最多的曲风。"
+                                   FontSize="13" Margin="0,10,0,2" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        <ItemsControl x:Name="DistributionList" Margin="0,8,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="2" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,3,18,3" ToolTip="{Binding ToolTipText}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="128" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="96" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="13"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                                        <ProgressBar Grid.Column="1" Value="{Binding Share, Mode=OneWay}" Minimum="0" Maximum="1"
+                                                     VerticalAlignment="Center" Margin="6,0,10,0"
+                                                     Style="{StaticResource CapsuleProgressStyle}" />
+                                        <TextBlock Grid.Column="2" Text="{Binding CountText}" FontSize="12"
+                                                   TextAlignment="Right" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 歌曲列表 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,16">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,16,20,14">
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="歌曲曲风" FontSize="16" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                            <TextBox x:Name="SearchBox" Grid.Column="1" Width="240" Margin="0,0,12,0"
+                                     VerticalAlignment="Center" TextChanged="OnSearchTextChanged"
+                                     ui:ControlHelper.PlaceholderText="搜索歌名、曲风或情绪…" />
+                            <TextBlock x:Name="SongCountText" Grid.Column="2" FontSize="12" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        </Grid>
+                        <TextBlock Text="双击歌曲行在网易云客户端打开播放页面；右键可手动修正曲风。"
+                                   FontSize="12" Margin="0,0,0,8"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+
+                        <Grid Margin="0,4,0,0" MinHeight="140">
+                            <DataGrid x:Name="SongGrid" MaxHeight="380"
+                                      AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                                      CanUserResizeRows="False" IsReadOnly="True" HeadersVisibility="Column"
+                                      GridLinesVisibility="Horizontal" SelectionMode="Single" SelectionUnit="FullRow"
+                                      Background="Transparent" RowBackground="Transparent" BorderThickness="0"
+                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                      VirtualizingStackPanel.IsVirtualizing="True"
+                                      VirtualizingStackPanel.VirtualizationMode="Recycling"
+                                      SelectionChanged="OnSongSelectionChanged"
+                                      MouseDoubleClick="OnSongDoubleClick">
+                                <DataGrid.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="在网易云打开" Click="OnOpenClick" />
+                                        <MenuItem Header="手动修正曲风" Click="OnEditClick" />
+                                    </ContextMenu>
+                                </DataGrid.ContextMenu>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="歌曲" Binding="{Binding Title}" Width="2*" />
+                                    <DataGridTextColumn Header="主曲风" Binding="{Binding Genre}" Width="1.1*" />
+                                    <DataGridTextColumn Header="其他曲风" Binding="{Binding Influences}" Width="1.3*" />
+                                    <DataGridTextColumn Header="情绪" Binding="{Binding Moods}" Width="1*" />
+                                    <DataGridTextColumn Header="来源" Binding="{Binding Origin}" Width="70" />
+                                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="82" />
+                                    <DataGridTextColumn Header="来源 / 输出目录" Binding="{Binding Directory}" Width="1.4*" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <TextBlock x:Name="EmptyTextBlock" Visibility="Collapsed" FontSize="13"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       TextAlignment="Center" Margin="20" IsHitTestVisible="False"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 最近任务消息 -->
+            <Border Style="{StaticResource GlassCardStyle}">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,16,20,14">
+                        <TextBlock Text="最近任务消息" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                        <TextBlock Text="分析、导出、修正、打开歌曲与创建歌单的结果都会保留在这里，最新在前。"
+                                   FontSize="12" Margin="0,3,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                        <TextBlock x:Name="MessagesEmptyText" Text="本页还没有曲风相关任务。"
+                                   FontSize="13" Margin="0,12,0,2"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        <ItemsControl x:Name="MessageList" Margin="0,6,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="58" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Time}" FontSize="12"
+                                                   VerticalAlignment="Top"
+                                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="6,0,8,0">
+                                            <TextBlock Text="{Binding Task}" FontSize="12" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                                            <TextBlock Text=" · " FontSize="12"
+                                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                            <TextBlock Text="{Binding Phase}" Style="{StaticResource PhaseTextStyle}" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2" Text="{Binding Detail}" FontSize="12"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

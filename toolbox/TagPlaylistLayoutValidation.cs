@@ -156,6 +156,10 @@ internal static class TagPlaylistLayoutValidation
                 var exportButton = Find(form, "ExportGenresButton") as Button;
                 var hint = Find(form, "TagPlaylistHint") as Label;
                 Check(tagButton != null && analyzeButton != null && exportButton != null && hint != null, "all genre action controls exist");
+                Check(tagButton.Text == "筛选生成歌单(∠・ω< )⌒★~", "tag playlist button uses the exact label");
+                int requiredTagButtonWidth = TextRenderer.MeasureText(tagButton.Text, tagButton.Font).Width + 16;
+                Check(tagButton.Width >= requiredTagButtonWidth,
+                    "tag playlist button is wide enough for its label (" + tagButton.Width + " >= " + requiredTagButtonWidth + ")");
                 Check(tagButton.Enabled, "tag playlist button is enabled when the analysis script exists");
                 Check(analyzeButton.Right <= exportButton.Left, "header buttons do not overlap");
                 Check(exportButton.Right <= header.ClientSize.Width + 1, "header buttons stay inside the header");

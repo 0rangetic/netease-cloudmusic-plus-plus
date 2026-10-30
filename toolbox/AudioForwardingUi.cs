@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -51,6 +52,7 @@ namespace NeteaseToolbox
         private Button audioStart, audioStop, audioRefresh;
         private AudioForwardingSettings audioSettings = new AudioForwardingSettings();
         private bool audioBusy;
+        private bool audioRefreshing;
         private bool audioSettingsDirty;
         private bool audioUserStopped;
         private string audioAutoLastMessage;
@@ -104,7 +106,28 @@ namespace NeteaseToolbox
             var page = new WallpaperPanel { Name = "AudioForwardingPage", Dock = DockStyle.Fill, Padding = new Padding(28), AutoScroll = true, BackColor = background };
             var layout = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
             page.Controls.Add(layout);
-            layout.Controls.Add(Label("音频转麦克风", 20, true, ink));
+            // The title row keeps the guide toggle at the page's right edge without overflowing
+            // it when the window shrinks to its minimum size.
+            var titleRow = new TableLayoutPanel {
+                Name = "AudioTitleRow", ColumnCount = 2, RowCount = 1, Height = 52,
+                Margin = new Padding(0)
+            };
+            titleRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            titleRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            titleRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            var titleLabel = Label("音频转麦克风", 20, true, ink);
+            titleLabel.AutoSize = false; titleLabel.Dock = DockStyle.Fill;
+            titleLabel.TextAlign = ContentAlignment.MiddleLeft; titleLabel.Margin = new Padding(3, 0, 0, 0);
+            var guideToggle = Button("显示", false);
+            guideToggle.Name = "AudioGuideToggle"; guideToggle.Width = 76; guideToggle.Height = 32;
+            guideToggle.Anchor = AnchorStyles.Right; guideToggle.Margin = new Padding(8, 6, 0, 6);
+            titleRow.Controls.Add(titleLabel, 0, 0);
+            titleRow.Controls.Add(guideToggle, 1, 0);
+            titleRow.Width = Math.Max(320, page.ClientSize.Width - page.Padding.Horizontal);
+            page.Resize += delegate {
+                titleRow.Width = Math.Max(320, page.ClientSize.Width - page.Padding.Horizontal);
+            };
+            layout.Controls.Add(titleRow);
             layout.Controls.Add(Label("网易云 → 虚拟声卡 → QQ / Discord / 游戏语音", 10, false, muted));
             audioProcessState.Margin = new Padding(3, 20, 3, 8); layout.Controls.Add(audioProcessState);
             audioProcesses.Name = "AudioProcessSelector"; layout.Controls.Add(audioProcesses);
@@ -160,33 +183,47 @@ namespace NeteaseToolbox
 
             audioState.Name = "AudioForwardStatus"; audioState.Width = 540; audioState.Text = "就绪 · 选择虚拟输出设备后开始转发。";
             audioState.Margin = new Padding(3, 14, 3, 0); layout.Controls.Add(audioState);
-            layout.Controls.Add(Label("使用方法（按顺序）", 11, true, ink));
-            layout.Controls.Add(AudioNote("1. 准备虚拟声卡：点下方按钮从官网安装 VB-CABLE；也可以直接用 Steam 自带的“Steam Streaming Microphone”设备对，不必安装任何驱动。"));
-            layout.Controls.Add(AudioNote("2. 装完 VB-CABLE 后，去 Windows“设置 → 系统 → 声音”把默认播放改回扬声器 / 耳机、默认录音改回真实麦克风。"
+            // Collapsed by default on every launch; the cable install section below stays visible.
+            var guidePanel = new FlowLayoutPanel {
+                Name = "AudioGuidePanel", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.TopDown, WrapContents = false, Visible = false, Margin = new Padding(0)
+            };
+            guidePanel.Controls.Add(Label("使用方法（按顺序）", 11, true, ink));
+            guidePanel.Controls.Add(AudioNote("1. 准备虚拟声卡：点下方按钮从官网安装 VB-CABLE；也可以直接用 Steam 自带的“Steam Streaming Microphone”设备对，不必安装任何驱动。"));
+            guidePanel.Controls.Add(AudioNote("2. 装完 VB-CABLE 后，去 Windows“设置 → 系统 → 声音”把默认播放改回扬声器 / 耳机、默认录音改回真实麦克风。"
                 + "否则其他软件的声音会被送进虚拟线，你听不到声音，通话里还会出现自己的回声。"));
-            layout.Controls.Add(AudioNote("3. 本页“输出设备”选虚拟声卡的播放端：CABLE Input (VB-Audio Virtual Cable)；用 Steam 设备对则选“扬声器 (Steam Streaming Microphone)”。"));
-            layout.Controls.Add(AudioNote("4. 语音软件里把麦克风选成虚拟声卡的录音端：CABLE Output (VB-Audio Virtual Cable)；Steam 设备对则选“麦克风 (Steam Streaming Microphone)”。"));
-            layout.Controls.Add(AudioHighlight("★ 打开 QQ 后把麦克风改成 CABLE Output (VB-Audio Virtual Cable)。"
+            guidePanel.Controls.Add(AudioNote("3. 本页“输出设备”选虚拟声卡的播放端：CABLE Input (VB-Audio Virtual Cable)；用 Steam 设备对则选“扬声器 (Steam Streaming Microphone)”。"));
+            guidePanel.Controls.Add(AudioNote("4. 语音软件里把麦克风选成虚拟声卡的录音端：CABLE Output (VB-Audio Virtual Cable)；Steam 设备对则选“麦克风 (Steam Streaming Microphone)”。"));
+            guidePanel.Controls.Add(AudioHighlight("★ 打开 QQ 后把麦克风改成 CABLE Output (VB-Audio Virtual Cable)。"
                 + "QQ NT 没有麦克风选择，只能去 Windows“声音 → 更多声音设置 → 录制”把 CABLE Output 设为“默认通信设备”"
                 + "（多媒体的默认录音仍保持真实麦克风）。"));
-            layout.Controls.Add(AudioNote("5. 想把自己的说话声一起送过去，勾选“混入真实麦克风”并选择真实麦克风（例如“麦克风阵列 (Realtek(R) Audio)”），再分别调好音乐音量和麦克风音量。"));
-            layout.Controls.Add(AudioNote("6. 点“开始转发”。运行状态、限幅和错误都显示在下方，并记录到“任务消息”。"));
-            layout.Controls.Add(AudioNote("7. 勾选“打开工具箱后自动开始转发”，工具箱随开机自启时会自动恢复本次的设备、模式和音量；"
+            guidePanel.Controls.Add(AudioNote("5. 想把自己的说话声一起送过去，勾选“混入真实麦克风”并选择真实麦克风（例如“麦克风阵列 (Realtek(R) Audio)”），再分别调好音乐音量和麦克风音量。"));
+            guidePanel.Controls.Add(AudioNote("6. 点“开始转发”。运行状态、限幅和错误都显示在下方，并记录到“任务消息”。"));
+            guidePanel.Controls.Add(AudioNote("7. 勾选“打开工具箱后自动开始转发”，工具箱随开机自启时会自动恢复本次的设备、模式和音量；"
                 + "网易云还没打开就每 5 秒重试一次，不用再手动点。"
                 + "注意：只要转发停止，虚拟线里就没有声音——使用默认麦克风的语音软件会连你的说话声一起听不到。"));
-            layout.Controls.Add(Label("注意", 11, true, ink));
-            layout.Controls.Add(AudioNote("· 请戴耳机使用：外放时麦克风会把歌再收一遍，产生回声或啸叫。"));
-            layout.Controls.Add(AudioNote("· 不要把与输出同一块虚拟声卡的录音端选作混入麦克风，工具箱会拒绝启动，避免啸叫。"));
-            layout.Controls.Add(AudioNote("· “系统声音”模式捕获默认播放设备上的所有声音，因此不能输出到同一个设备，否则会循环回送。"));
-            layout.Controls.Add(AudioNote("· 只做实时转发，不保存音频；网易云退出、麦克风或输出设备断开时会停止转发并释放音频设备。"));
+            guidePanel.Controls.Add(Label("注意", 11, true, ink));
+            guidePanel.Controls.Add(AudioNote("· 请戴耳机使用：外放时麦克风会把歌再收一遍，产生回声或啸叫。"));
+            guidePanel.Controls.Add(AudioNote("· 不要把与输出同一块虚拟声卡的录音端选作混入麦克风，工具箱会拒绝启动，避免啸叫。"));
+            guidePanel.Controls.Add(AudioNote("· “系统声音”模式捕获默认播放设备上的所有声音，因此不能输出到同一个设备，否则会循环回送。"));
+            guidePanel.Controls.Add(AudioNote("· 只做实时转发，不保存音频；网易云退出、麦克风或输出设备断开时会停止转发并释放音频设备。"));
+            layout.Controls.Add(guidePanel);
             layout.Controls.Add(Label("安装 VB-CABLE", 11, true, ink));
             layout.Controls.Add(AudioNote("在官网下载 Windows 版压缩包，解压后以管理员身份运行 VBCABLE_Setup_x64.exe，点 Install Driver，按提示重启电脑，再回到此页点“刷新设备 / 进程”。工具箱不代装驱动。"));
-            var download = Button("下载 VB-CABLE（官方网站）", false); download.Width = 260;
+            var download = Button("下载 VB-CABLE（官方网站）", false); download.Name = "AudioCableDownload"; download.Width = 260;
             download.Click += delegate {
                 try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://vb-audio.com/Cable/") { UseShellExecute = true }); }
                 catch (Exception ex) { audioState.Text = "打开下载页面失败：" + ex.Message; ReportTask("音频转麦克风", "失败", audioState.Text); }
             };
             layout.Controls.Add(download);
+            guideToggle.Click += delegate {
+                guidePanel.Visible = !guidePanel.Visible;
+                guideToggle.Text = guidePanel.Visible ? "隐藏" : "显示";
+                page.PerformLayout();
+                if (guidePanel.Visible)
+                    page.AutoScrollPosition = new Point(0, Math.Max(0, layout.Top + guidePanel.Top - 8));
+            };
+            tips.SetToolTip(guideToggle, "显示或收起使用方法和注意事项。");
             audioStart.Click += async delegate { audioUserStopped = false; audioAutoLastMessage = null; await StartAudioForwarding(false); };
             audioStop.Click += async delegate { audioUserStopped = true; await StopAudioForwarding(); };
             audioRefresh.Click += delegate { RefreshAudioChoices(true); };
@@ -194,7 +231,7 @@ namespace NeteaseToolbox
                 audioProcesses.Enabled = !audioBusy && !audioForwarder.Running && audioMode.SelectedIndex == 0;
                 AudioSettingChanged();
             };
-            audioMixMicrophone.CheckedChanged += delegate { SetAudioControls(); AudioSettingChanged(); };
+            audioMixMicrophone.CheckedChanged += delegate { SetAudioControls(); audioMixState.Text = MixStateText(); AudioSettingChanged(); };
             audioOutputs.SelectedIndexChanged += delegate { AudioSettingChanged(); };
             audioMicrophones.SelectedIndexChanged += delegate { AudioSettingChanged(); };
             audioForwarder.Status += delegate(string phase, string message) {
@@ -223,7 +260,7 @@ namespace NeteaseToolbox
             };
             audioForwarder.Volume = audioMusicVolume.Value / 100f;
             audioForwarder.MicrophoneVolume = audioMicrophoneVolume.Value / 100f;
-            audioUiTimer.Start(); RefreshAudioChoices(false);
+            audioUiTimer.Start();
             audioState.Text = audioAutoStart.Checked
                 ? "已开启自动转发 · 正在等待设备与网易云音乐…"
                 : "就绪 · 选择虚拟输出设备后开始转发。";
@@ -250,12 +287,54 @@ namespace NeteaseToolbox
         }
         private void RefreshAudioChoices(bool userInitiated)
         {
-            if (audioBusy || audioForwarder.Running) return;
+            if (audioBusy || audioForwarder.Running || audioRefreshing) return;
+            audioRefreshing = true;
+            if (userInitiated) audioState.Text = "正在刷新设备 / 进程…";
+            var previousDevice = audioOutputs.SelectedItem as AudioEndpoint;
+            var previousProcess = audioProcesses.SelectedItem as MusicProcess;
+            var previousMicrophone = audioMicrophones.SelectedItem as AudioEndpoint;
+            // Endpoint property reads can take seconds on some drivers, so enumeration runs off
+            // the UI thread and the combo boxes are only filled once the results are in.
+            Task.Run(() => {
+                var choices = new AudioChoicesSnapshot {
+                    Outputs = AudioForwarder.Outputs(),
+                    Processes = AudioForwarder.Processes(),
+                    Microphones = AudioForwarder.Microphones()
+                };
+                try { choices.DefaultMicrophoneId = AudioForwarder.DefaultMicrophoneId(); } catch { }
+                return choices;
+            }).ContinueWith(task => {
+                if (task.IsFaulted) {
+                    Exception error = task.Exception.GetBaseException();
+                    InvokeUiAsync(() => {
+                        audioRefreshing = false;
+                        if (IsDisposed) return;
+                        ApplyAudioChoicesFailed(error, userInitiated);
+                    });
+                    return;
+                }
+                AudioChoicesSnapshot choices = task.Result;
+                InvokeUiAsync(() => {
+                    if (IsDisposed) { audioRefreshing = false; return; }
+                    try {
+                        if (audioBusy || audioForwarder.Running) return;
+                        ApplyAudioChoices(choices, previousDevice, previousProcess, previousMicrophone, userInitiated);
+                    } finally { audioRefreshing = false; }
+                });
+            });
+        }
+        private sealed class AudioChoicesSnapshot
+        {
+            public List<AudioEndpoint> Outputs;
+            public List<MusicProcess> Processes;
+            public List<AudioEndpoint> Microphones;
+            public string DefaultMicrophoneId;
+        }
+        private void ApplyAudioChoices(AudioChoicesSnapshot choices, AudioEndpoint previousDevice, MusicProcess previousProcess,
+            AudioEndpoint previousMicrophone, bool userInitiated)
+        {
             try {
-                var previousDevice = audioOutputs.SelectedItem as AudioEndpoint;
-                var previousProcess = audioProcesses.SelectedItem as MusicProcess;
-                var previousMicrophone = audioMicrophones.SelectedItem as AudioEndpoint;
-                var outputs = AudioForwarder.Outputs(); var processes = AudioForwarder.Processes(); var microphones = AudioForwarder.Microphones();
+                var outputs = choices.Outputs; var processes = choices.Processes; var microphones = choices.Microphones;
                 audioOutputs.BeginUpdate(); audioProcesses.BeginUpdate(); audioMicrophones.BeginUpdate();
                 try {
                     audioOutputs.Items.Clear(); audioOutputs.Items.AddRange(outputs.Cast<object>().ToArray());
@@ -271,9 +350,7 @@ namespace NeteaseToolbox
                     var microphone = microphones.FirstOrDefault(d => previousMicrophone != null && d.Id == previousMicrophone.Id)
                         ?? microphones.FirstOrDefault(d => !string.IsNullOrEmpty(audioSettings.MicrophoneId) && d.Id == audioSettings.MicrophoneId);
                     if (microphone == null) {
-                        string preferred = null;
-                        try { preferred = AudioForwarder.DefaultMicrophoneId(); } catch { }
-                        var preferredDevice = microphones.FirstOrDefault(d => preferred != null && d.Id == preferred);
+                        var preferredDevice = microphones.FirstOrDefault(d => choices.DefaultMicrophoneId != null && d.Id == choices.DefaultMicrophoneId);
                         // Installing a virtual cable makes Windows point its default recording
                         // device at the cable's own capture side; prefer a real microphone so the
                         // first run does not silently mix the cable back into itself.
@@ -293,10 +370,14 @@ namespace NeteaseToolbox
                     audioState.Text = "未检测到 CABLE Input。可从下方官方网站安装 VB-CABLE；其他虚拟声卡请手动选择其播放端。";
                 if (microphones.Count == 0) audioMixState.Text = "未找到可用的麦克风，无法混入真实麦克风。";
             } catch (Exception ex) {
-                audioProcessState.Text = "设备 / 进程读取失败";
-                audioState.Text = ex.Message;
-                if (userInitiated) ReportTask("音频转麦克风", "失败", ex.Message);
+                ApplyAudioChoicesFailed(ex, userInitiated);
             }
+        }
+        private void ApplyAudioChoicesFailed(Exception ex, bool userInitiated)
+        {
+            audioProcessState.Text = "设备 / 进程读取失败";
+            audioState.Text = ex.Message;
+            if (userInitiated) ReportTask("音频转麦克风", "失败", ex.Message);
         }
         private void SetAudioControls()
         {

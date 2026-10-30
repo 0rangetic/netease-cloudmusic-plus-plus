@@ -32,10 +32,10 @@
             </Setter>
         </Style>
 
-        <!-- 统计指标小卡片样式 -->
+        <!-- 统计指标小卡片样式（背景/描边由主窗口按玻璃开关切换） -->
         <Style x:Key="MetricCardBorderStyle" TargetType="Border">
-            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundAltHighBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlStrokeColorCardStrokeBrush}" />
+            <Setter Property="Background" Value="{DynamicResource ToolboxGlassCardBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolboxGlassCardBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Padding" Value="18,14" />
@@ -45,24 +45,19 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="28,20,28,32">
             <!-- 头部控制栏 -->
-            <Grid Margin="0,0,0,20">
+            <Border Background="{DynamicResource ToolboxGlassCardBrush}"
+                    BorderBrush="{DynamicResource ToolboxGlassCardBorderBrush}"
+                    BorderThickness="1" CornerRadius="12" Padding="20,16" Margin="0,0,0,20">
+            <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0">
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="听歌画像仪表盘" FontSize="24" FontWeight="SemiBold" 
-                                   Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
-                        <Border Margin="14,0,0,0" VerticalAlignment="Center" CornerRadius="4" 
-                                Background="{DynamicResource SystemControlBackgroundBaseLowBrush}" Padding="8,3">
-                            <TextBlock x:Name="AsOfTextBlock" Text="数据载入中…" FontSize="12" 
-                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
-                        </Border>
-                    </StackPanel>
-                    <TextBlock Text="基于网易云官方听歌档案与本地百科标签分析，全本地实时计算。" 
-                               Margin="0,4,0,0" FontSize="13" 
+                    <TextBlock Text="听歌画像仪表盘" FontSize="24" FontWeight="SemiBold" 
+                               Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                    <TextBlock x:Name="AsOfTextBlock" Text="数据载入中…" FontSize="13" Margin="0,4,0,0"
                                Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
                 </StackPanel>
 
@@ -90,6 +85,7 @@
                             Padding="12,6" Margin="8,0,0,0" Click="OnPhoneSyncClick" />
                 </StackPanel>
             </Grid>
+            </Border>
 
             <!-- 第一行：三张核心指标卡片 -->
             <Grid Margin="0,0,0,20">
@@ -306,10 +302,16 @@
                                            FontSize="12" Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
                             </Border>
                         </StackPanel>
-                        <Border Grid.Column="1" CornerRadius="4" Background="{DynamicResource SystemControlBackgroundBaseLowBrush}" Padding="8,3">
-                            <TextBlock x:Name="AiStatusTextBlock" Text="{Binding AiInsight.StatusText, FallbackValue='就绪'}" 
-                                       FontSize="12" FontWeight="Medium" Foreground="{DynamicResource SystemControlHighlightAccentBrush}" />
-                        </Border>
+                        <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button x:Name="RefreshInsightButton" Content="刷新画像" 
+                                    Style="{DynamicResource AccentButtonStyle}"
+                                    FontSize="12" Padding="12,4" Margin="0,0,0,6"
+                                    Click="OnRefreshInsightClick" />
+                            <Border CornerRadius="4" Background="{DynamicResource SystemControlBackgroundBaseLowBrush}" Padding="8,3">
+                                <TextBlock x:Name="AiStatusTextBlock" Text="{Binding AiInsight.StatusText, FallbackValue='就绪'}" 
+                                           FontSize="12" FontWeight="Medium" Foreground="{DynamicResource SystemControlHighlightAccentBrush}" />
+                            </Border>
+                        </StackPanel>
                     </Grid>
                     <Separator Background="{DynamicResource SystemControlStrokeColorCardStrokeBrush}" Margin="0,0,0,12" />
                     <TextBlock x:Name="AiContentTextBlock" 

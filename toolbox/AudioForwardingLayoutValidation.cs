@@ -68,6 +68,26 @@ internal static class AudioForwardingLayoutValidation
                     Check(control.Visible, name + " 可见");
                     Check(control.Bounds.Width > 0 && control.Bounds.Height > 0, name + " 有可见尺寸 " + control.Bounds);
                 }
+                // The guide starts collapsed; installing the cable must not require expanding it.
+                var guideToggle = Find(form, "AudioGuideToggle") as Button;
+                Check(guideToggle != null, "说明开关按钮存在");
+                Check(guideToggle.Visible, "说明开关按钮可见");
+                Check(guideToggle.Text == "显示", "说明默认收起，按钮文本为“显示”");
+                var guidePanel = Find(form, "AudioGuidePanel");
+                Check(guidePanel != null, "使用方法和注意事项容器存在");
+                Check(!guidePanel.Visible, "使用方法和注意事项默认隐藏");
+                var cableDownload = Find(form, "AudioCableDownload") as Button;
+                Check(cableDownload != null, "VB-CABLE 下载按钮存在");
+                Check(cableDownload.Visible, "说明隐藏时 VB-CABLE 下载按钮仍可见");
+                guideToggle.PerformClick(); Application.DoEvents();
+                Check(guidePanel.Visible, "点击“显示”后使用方法和注意事项展开");
+                Check(guideToggle.Text == "隐藏", "展开后按钮文本为“隐藏”");
+                guideToggle.PerformClick(); Application.DoEvents();
+                Check(!guidePanel.Visible, "再次点击后使用方法和注意事项收起");
+                Check(guideToggle.Text == "显示", "收起后按钮文本恢复为“显示”");
+                // Expanding scrolled the page to the guide; the scroll-range checks need the top.
+                page.AutoScrollPosition = Point.Empty; page.PerformLayout(); Application.DoEvents();
+
                 var layout = page.Controls.Cast<Control>().FirstOrDefault();
                 Check(layout != null, "页面内容容器存在");
                 var volume = (TrackBar)Find(form, "AudioMusicVolume");
@@ -117,6 +137,16 @@ internal static class AudioForwardingLayoutValidation
                 foreach (Control child in layout.Controls)
                     Console.WriteLine("  " + (child.Name.Length > 0 ? child.Name : child.GetType().Name) + " " + child.Bounds + " text=" + Truncate(child.Text));
 
+                // Collapsed header: the toggle must be visible at the top-right of the page.
+                page.AutoScrollPosition = Point.Empty; page.PerformLayout(); Application.DoEvents();
+                Capture(page, Path.Combine(args[1], "audio-page-collapsed.png"));
+
+                // Expand the guide before capturing so the review images show the complete steps.
+                guideToggle.PerformClick(); Application.DoEvents();
+                Check(guidePanel.Visible, "截图前使用方法和注意事项已展开");
+                form.PerformLayout(); Application.DoEvents();
+                Check(page.DisplayRectangle.Bottom + page.Padding.Bottom >= layout.Bottom,
+                    "展开说明后滚动范围覆盖页面底部（" + (page.DisplayRectangle.Bottom + page.Padding.Bottom) + " >= " + layout.Bottom + "）");
                 Capture(form, Path.Combine(args[1], "audio-page-default.png"));
 
                 // Render the flow layout itself so the complete page is reviewable in one

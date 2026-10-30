@@ -146,6 +146,48 @@ namespace NeteaseToolbox
             return Counts(songs, delegate(TagPlaylistSong song) { return song.Genres; });
         }
 
+        // WPF 曲风页用：把每首歌的标签数组（主曲风、融合元素、情绪）汇总成按出现次数排序的统计。
+        // 与 Counts 一致：同一首歌里重复出现的同名标签只计一次，空标签忽略。
+        internal static List<TagPlaylistCount> CountDistinct(IEnumerable<IEnumerable<string>> songTags)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var tags in songTags ?? Enumerable.Empty<IEnumerable<string>>())
+            {
+                if (tags == null) continue;
+                var distinct = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var value in tags)
+                {
+                    if (string.IsNullOrWhiteSpace(value)) continue;
+                    distinct.Add(value.Trim());
+                }
+                foreach (var value in distinct)
+                {
+                    int count;
+                    counts[value] = counts.TryGetValue(value, out count) ? count + 1 : 1;
+                }
+            }
+            return counts.Select(item => new TagPlaylistCount { Name = item.Key, Count = item.Value })
+                .OrderByDescending(item => item.Count)
+                .ThenBy(item => item.Name, StringComparer.CurrentCulture)
+                .ToList();
+        }
+
+        // 曲风分析结果里的“其他曲风/情绪”用 " / " 拼接（见 genre_analysis.py），这里按同一分隔符拆成独立标签。
+        // 主曲风本身是一个整体标签，不做拆分；“暂无标签/未分析/无”不是标签，直接丢弃。
+        internal static string[] SplitTags(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return new string[0];
+            var result = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var part in value.Split(new[] { " / " }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var tag = part.Trim();
+                if (tag.Length == 0 || tag == "暂无标签" || tag == "未分析" || tag == "无") continue;
+                if (seen.Add(tag)) result.Add(tag);
+            }
+            return result.ToArray();
+        }
+
         private static List<TagPlaylistCount> Counts(IEnumerable<TagPlaylistSong> songs, Func<TagPlaylistSong, string[]> selector)
         {
             var counts = new Dictionary<string, int>(StringComparer.Ordinal);

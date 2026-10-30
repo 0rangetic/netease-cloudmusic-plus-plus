@@ -313,12 +313,13 @@ namespace NeteaseToolbox
             base.Dispose(disposing);
         }
     }
+
     internal sealed class WallpaperPanel : Panel
     {
         public WallpaperPanel() { DoubleBuffered = true; ResizeRedraw = true; }
         protected override void OnPaintBackground(PaintEventArgs e)
         {
-            var form = FindForm() as ToolboxForm;
+            var form = FindForm() as ToolboxForm ?? ToolboxForm.Instance;
             if (BackColor == Color.Transparent && form != null && form.WallpaperEnabled)
             {
                 form.PaintWallpaperRegion(e.Graphics, this, e.ClipRectangle);

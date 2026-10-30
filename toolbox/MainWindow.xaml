@@ -10,7 +10,7 @@
         WindowStartupLocation="CenterScreen"
         ui:WindowHelper.UseModernWindowStyle="False">
     
-    <Grid>
+    <Grid x:Name="RootGrid" Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
         <Grid.RowDefinitions>
             <!-- 顶栏状态与标题 -->
             <RowDefinition Height="46" />
@@ -20,8 +20,16 @@
             <RowDefinition Height="36" />
         </Grid.RowDefinitions>
 
+        <!-- 全窗背景层：壁纸/柔光渐变 + 蒙版，玻璃开启时透到顶栏、导航和底栏 -->
+        <Grid x:Name="BackdropLayer" Grid.RowSpan="3" IsHitTestVisible="False">
+            <Border x:Name="AmbientBase" />
+            <Border x:Name="AmbientGlow" />
+            <Border x:Name="BackdropSurface" />
+            <Border x:Name="BackdropWash" Background="#A5141821" />
+        </Grid>
+
         <!-- 顶栏 -->
-        <Border Grid.Row="0" Background="{DynamicResource SystemControlBackgroundAltHighBrush}" 
+        <Border x:Name="TopBar" Grid.Row="0" Background="{DynamicResource SystemControlBackgroundAltHighBrush}" 
                 BorderBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}" BorderThickness="0,0,0,1">
             <Grid Margin="18,0">
                 <Grid.ColumnDefinitions>
@@ -51,6 +59,9 @@
                         </StackPanel>
                     </Button>
 
+                    <!-- 自定义背景入口 -->
+                    <Button x:Name="AppearanceButton" Content="🎨 外观" Padding="10,4" Margin="0,0,8,0" Click="OnAppearanceClick" />
+
                     <!-- 主题切换按钮 -->
                     <Button x:Name="ThemeToggleButton" Content="🌓 主题" Padding="10,4" Click="OnThemeToggleClick" />
                 </StackPanel>
@@ -59,6 +70,7 @@
 
         <!-- 主内容区域：ModernWpf NavigationView -->
         <ui:NavigationView Grid.Row="1" x:Name="NavView" 
+                           Background="Transparent"
                            PaneDisplayMode="Left" 
                            IsBackButtonVisible="Collapsed" 
                            IsSettingsVisible="False"
@@ -85,10 +97,17 @@
                                 <ColumnDefinition Width="32" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Width="28" Height="28" CornerRadius="14" 
-                                    Background="{DynamicResource SystemControlHighlightAccentBrush}">
-                                <TextBlock Text="👤" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14" />
-                            </Border>
+                            <Grid Grid.Column="0" Width="28" Height="28">
+                                <Border x:Name="AccountAvatarPlaceholder" CornerRadius="14" 
+                                        Background="{DynamicResource SystemControlHighlightAccentBrush}">
+                                    <TextBlock Text="👤" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14" />
+                                </Border>
+                                <Ellipse x:Name="AccountAvatarImage" Visibility="Collapsed">
+                                    <Ellipse.Fill>
+                                        <ImageBrush x:Name="AccountAvatarBrush" Stretch="UniformToFill" />
+                                    </Ellipse.Fill>
+                                </Ellipse>
+                            </Grid>
                             <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
                                 <TextBlock x:Name="AccountNicknameText" Text="未登录网易云" FontSize="12" FontWeight="SemiBold" 
                                            TextTrimming="CharacterEllipsis" />
@@ -100,8 +119,8 @@
                 </ui:NavigationViewItem>
             </ui:NavigationView.FooterMenuItems>
 
-            <!-- 页面内容展示容器 -->
-            <Border x:Name="ContentBorder" Background="#141821">
+            <!-- 页面内容展示容器：玻璃开启时保持透明，让全窗背景透出 -->
+            <Border x:Name="ContentBorder" Background="Transparent">
                 <Grid>
                     <ContentControl x:Name="WinFormsArea" Visibility="Hidden" />
                     <ContentControl x:Name="ContentArea" Visibility="Visible" />
@@ -110,7 +129,7 @@
         </ui:NavigationView>
 
         <!-- 底部任务状态栏（严格遵循任务反馈约定，错误信息界面可见，保留任务消息） -->
-        <Border Grid.Row="2" Background="{DynamicResource SystemControlBackgroundAltHighBrush}" 
+        <Border x:Name="BottomBar" Grid.Row="2" Background="{DynamicResource SystemControlBackgroundAltHighBrush}" 
                 BorderBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}" BorderThickness="0,1,0,0">
             <Grid Margin="16,0">
                 <Grid.ColumnDefinitions>

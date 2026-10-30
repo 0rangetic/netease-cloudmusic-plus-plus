@@ -8,8 +8,9 @@ namespace NeteaseToolbox
 {
     internal sealed class ThemePalette
     {
-        public readonly Color Background, Panel, Ink, Muted, Accent, Border, Secondary,
+        public readonly Color Background, Panel, Ink, Muted, Border, Secondary,
             ButtonInk, Danger, Success, Error, LogBackground;
+        public Color Accent;
         public static readonly ThemePalette Dark = new ThemePalette(false);
         public static readonly ThemePalette Light = new ThemePalette(true);
 
@@ -29,13 +30,20 @@ namespace NeteaseToolbox
             LogBackground = light ? Panel : Color.FromArgb(25, 30, 41);
         }
 
+        internal ThemePalette CloneWithAccent(Color accent)
+        {
+            var clone = (ThemePalette)MemberwiseClone();
+            clone.Accent = accent;
+            return clone;
+        }
+
         public Color Map(Color value, ThemePalette target, bool foreground)
         {
             // Foreground and background have separate mappings: white is both the
             // light panel surface and the dark secondary-button text color.
-            Color[] source = foreground ? new[] { Ink, Muted, Success, Error, ButtonInk }
+            Color[] source = foreground ? new[] { Ink, Muted, Success, Error, ButtonInk, Accent }
                 : new[] { Background, Panel, Secondary, Accent, Border, LogBackground };
-            Color[] destination = foreground ? new[] { target.Ink, target.Muted, target.Success, target.Error, target.ButtonInk }
+            Color[] destination = foreground ? new[] { target.Ink, target.Muted, target.Success, target.Error, target.ButtonInk, target.Accent }
                 : new[] { target.Background, target.Panel, target.Secondary, target.Accent, target.Border, target.LogBackground };
             for (int i = 0; i < source.Length; i++)
                 if (value.ToArgb() == source[i].ToArgb()) return destination[i];
@@ -142,6 +150,34 @@ namespace NeteaseToolbox
             catch (Exception ex) {
                 ReportTask("界面主题", "部分失败", "主题已切换，但无法保存下次启动的偏好：" + ex.Message);
             }
+        }
+
+        internal void ApplySystemAccent(Color accent)
+        {
+            if (accent.IsEmpty) return;
+            if (ThemePalette.Dark.Accent.ToArgb() == accent.ToArgb() &&
+                ThemePalette.Light.Accent.ToArgb() == accent.ToArgb()) return;
+
+            var previous = theme.CloneWithAccent(theme.Accent);
+            ThemePalette.Dark.Accent = accent;
+            ThemePalette.Light.Accent = accent;
+
+            SuspendLayout();
+            try {
+                RecolorControls(this, previous);
+                if (pageHost != null && pageHost.Parent != this) RecolorControls(pageHost, previous);
+                if (logWindow != null && !logWindow.IsDisposed) RecolorControls(logWindow, previous);
+                if (taskMessagesWindow != null && !taskMessagesWindow.IsDisposed) RecolorControls(taskMessagesWindow, previous);
+            }
+            finally { ResumeLayout(true); }
+
+            ApplyWallpaperSurfaces(this);
+            if (pageHost != null && pageHost.Parent != this)
+            {
+                ApplyWallpaperSurfaces(pageHost);
+                pageHost.Invalidate(true);
+            }
+            Invalidate(true);
         }
 
         private void RecolorControls(Control control, ThemePalette previous)

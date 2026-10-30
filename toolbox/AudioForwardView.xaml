@@ -1,0 +1,330 @@
+<UserControl x:Class="NeteaseToolbox.Wpf.AudioForwardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:ui="http://schemas.modernwpf.com/2019"
+             mc:Ignorable="d"
+             d:DesignHeight="900" d:DesignWidth="1000"
+             Background="Transparent">
+    <UserControl.Resources>
+        <!-- 玻璃卡片：底色/描边由主窗口按壁纸与明暗主题动态切换，不画实色底 -->
+        <Style x:Key="GlassCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource ToolboxGlassCardBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolboxGlassCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+        </Style>
+
+        <!-- 卡片顶部柔光：不拦截鼠标，叠加在玻璃底色之上 -->
+        <Style x:Key="GlassCardGlowStyle" TargetType="Border">
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Margin" Value="1" />
+            <Setter Property="Background">
+                <Setter.Value>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#30FFFFFF" Offset="0" />
+                        <GradientStop Color="#0CFFFFFF" Offset="0.26" />
+                        <GradientStop Color="#00FFFFFF" Offset="0.55" />
+                    </LinearGradientBrush>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 电平条：细圆角，与画像页保持同一套 Fluent 观感 -->
+        <Style x:Key="CapsuleProgressStyle" TargetType="ProgressBar">
+            <Setter Property="Height" Value="8" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlHighlightAccentBrush}" />
+            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundBaseLowBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid ClipToBounds="True">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="4" />
+                            <Border x:Name="PART_Track" CornerRadius="4" ClipToBounds="True">
+                                <Border x:Name="PART_Indicator"
+                                        Background="{TemplateBinding Foreground}"
+                                        HorizontalAlignment="Left"
+                                        CornerRadius="4" />
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+        </Style>
+
+        <Style x:Key="SectionHintStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Margin" Value="0,3,0,0" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+        </Style>
+
+        <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+        </Style>
+
+        <Style x:Key="GuideStepStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="LineHeight" Value="21" />
+            <Setter Property="Margin" Value="0,7,0,0" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+        </Style>
+
+        <Style x:Key="GuideHighlightStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="LineHeight" Value="21" />
+            <Setter Property="Margin" Value="0,9,0,0" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlHighlightAccentBrush}" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,20,28,32">
+            <!-- 标题卡片 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,16">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <Grid Margin="20,16,20,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="音频转麦克风" FontSize="24" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                            <TextBlock Text="网易云 → 虚拟声卡 → QQ / Discord / 游戏语音" FontSize="13"
+                                       Margin="0,6,0,0" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                        </StackPanel>
+                        <Button x:Name="GuideToggleButton" Grid.Column="1" Content="显示指南"
+                                Padding="14,6" VerticalAlignment="Top" Margin="12,0,0,0"
+                                Click="OnGuideToggleClick"
+                                ToolTip="显示或收起使用方法和注意事项。" />
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- 状态卡片 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,16">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,14,20,14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Ellipse x:Name="StatusDot" Width="9" Height="9" VerticalAlignment="Center"
+                                     Fill="{DynamicResource SystemControlHighlightAccentBrush}" />
+                            <TextBlock x:Name="StatusTextBlock" Grid.Column="1" Margin="10,0,12,0"
+                                       FontSize="13" LineHeight="20" TextWrapping="Wrap" VerticalAlignment="Center"
+                                       Text="就绪 · 选择虚拟输出设备后开始转发。"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock x:Name="BusyText" Text="正在处理…" FontSize="12" Margin="0,0,10,0"
+                                           Visibility="Collapsed"
+                                           Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                                <ProgressBar x:Name="BusyBar" Width="90" Height="4" IsIndeterminate="True"
+                                             Visibility="Collapsed" />
+                            </StackPanel>
+                        </Grid>
+                        <Border x:Name="ErrorPanel" Visibility="Collapsed" CornerRadius="8" Padding="12,9" Margin="0,10,0,0"
+                                Background="#26E76F51" BorderBrush="#59E76F51" BorderThickness="1">
+                            <TextBlock x:Name="ErrorTextBlock" FontSize="13" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+                        </Border>
+                        <TextBlock Text="运行状态、错误与限幅提示会同步记录到“任务消息”。" FontSize="12" Margin="0,8,0,0"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 转发设置卡片 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,16">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,18,20,18">
+                        <TextBlock Text="转发设置" Style="{StaticResource SectionTitleStyle}" />
+                        <TextBlock Text="先选择虚拟声卡的播放端，再开始转发；虚拟声卡未安装时请从页面底部前往官网下载。"
+                                   Style="{StaticResource SectionHintStyle}" />
+
+                        <TextBlock Text="捕获模式" Style="{StaticResource FieldLabelStyle}" Margin="0,16,0,0" />
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <RadioButton x:Name="ProcessModeRadio" Content="仅网易云（含子进程）" GroupName="AudioCaptureMode"
+                                         Style="{DynamicResource DefaultRadioButtonStyle}" VerticalAlignment="Center"
+                                         Checked="OnModeChecked" />
+                            <RadioButton x:Name="SystemModeRadio" Content="系统声音（所有应用）" GroupName="AudioCaptureMode"
+                                         Style="{DynamicResource DefaultRadioButtonStyle}" VerticalAlignment="Center"
+                                         Margin="16,0,0,0" Checked="OnModeChecked" />
+                        </StackPanel>
+
+                        <TextBlock x:Name="ProcessStateText" Text="网易云进程：正在检测…" Margin="0,16,0,0"
+                                   Style="{StaticResource FieldLabelStyle}" TextWrapping="Wrap" />
+                        <ComboBox x:Name="ProcessCombo" Margin="0,6,0,0"
+                                  SelectionChanged="OnProcessSelectionChanged"
+                                  ToolTip="选择要捕获的网易云进程（含子进程）。" />
+
+                        <TextBlock Text="输出设备" Style="{StaticResource FieldLabelStyle}" Margin="0,16,0,0" />
+                        <TextBlock Text="选择 CABLE Input 或其他虚拟声卡的播放端；没有虚拟声卡时不会自动改用扬声器。"
+                                   Style="{StaticResource SectionHintStyle}" Margin="0,2,0,6" />
+                        <ComboBox x:Name="OutputCombo" SelectionChanged="OnOutputSelectionChanged"
+                                  ToolTip="虚拟声卡的播放端，例如 CABLE Input (VB-Audio Virtual Cable)。" />
+
+                        <WrapPanel Margin="0,16,0,0">
+                            <Button x:Name="StartButton" Content="开始转发" Style="{DynamicResource AccentButtonStyle}"
+                                    Padding="18,6" Margin="0,0,8,8" Click="OnStartClick" />
+                            <Button x:Name="StopButton" Content="停止" Padding="20,6" Margin="0,0,8,8"
+                                    IsEnabled="False" Click="OnStopClick" />
+                            <Button x:Name="RefreshButton" Content="刷新设备 / 进程" Padding="16,6" Margin="0,0,0,8"
+                                    Click="OnRefreshClick" ToolTip="重新枚举播放设备、麦克风与网易云进程。" />
+                        </WrapPanel>
+
+                        <ui:ToggleSwitch x:Name="AutoStartSwitch" Header="打开工具箱后自动开始转发"
+                                         OnContent="开启" OffContent="关闭" Margin="0,8,0,0"
+                                         Toggled="OnAutoStartToggled" />
+                        <TextBlock Text="记住本次设备与音量；网易云还没打开时每 5 秒重试一次，不用再手动点。"
+                                   Style="{StaticResource SectionHintStyle}" />
+
+                        <Grid Margin="0,18,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="音乐音量" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="MusicVolumeText" Grid.Column="1" Text="75%" FontSize="13" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SystemControlHighlightAccentBrush}" />
+                        </Grid>
+                        <Slider x:Name="MusicVolumeSlider" Minimum="0" Maximum="100" Value="75" TickFrequency="10"
+                                IsSnapToTickEnabled="False" Margin="0,4,0,0" ValueChanged="OnMusicVolumeChanged"
+                                ToolTip="转发出去的网易云音乐音量，可随时调整。" />
+
+                        <Grid Margin="0,10,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="转发电平（音量控制后）" FontSize="12"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                            <TextBlock x:Name="MusicLevelText" Grid.Column="1" Text="0%" FontSize="12"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                        </Grid>
+                        <ProgressBar x:Name="MusicMeter" Maximum="100" Style="{StaticResource CapsuleProgressStyle}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 麦克风混音卡片 -->
+            <Border Style="{StaticResource GlassCardStyle}" Margin="0,0,0,16">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,18,20,18">
+                        <TextBlock Text="麦克风混音" Style="{StaticResource SectionTitleStyle}" />
+                        <ui:ToggleSwitch x:Name="MixSwitch" Header="混入真实麦克风" OnContent="开启" OffContent="关闭"
+                                         Margin="0,10,0,0" Toggled="OnMixToggled" />
+                        <TextBlock Text="勾选后把自己的说话声一起送进虚拟麦克风；请选择真实麦克风，不要选虚拟声卡的录音端。"
+                                   Style="{StaticResource SectionHintStyle}" />
+
+                        <TextBlock Text="麦克风设备" Style="{StaticResource FieldLabelStyle}" Margin="0,16,0,6" />
+                        <ComboBox x:Name="MicrophoneCombo" SelectionChanged="OnMicrophoneSelectionChanged"
+                                  ToolTip="你说话用的真实麦克风，例如“麦克风阵列 (Realtek(R) Audio)”。" />
+
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="麦克风音量" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="MicrophoneVolumeText" Grid.Column="1" Text="100%" FontSize="13" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SystemControlHighlightAccentBrush}" />
+                        </Grid>
+                        <Slider x:Name="MicrophoneVolumeSlider" Minimum="0" Maximum="100" Value="100" TickFrequency="10"
+                                IsSnapToTickEnabled="False" Margin="0,4,0,0" ValueChanged="OnMicrophoneVolumeChanged"
+                                ToolTip="混入的真实麦克风音量。" />
+
+                        <Grid Margin="0,10,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="麦克风电平（音量控制后）" FontSize="12"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                            <TextBlock x:Name="MicrophoneLevelText" Grid.Column="1" Text="0%" FontSize="12"
+                                       Foreground="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+                        </Grid>
+                        <ProgressBar x:Name="MicrophoneMeter" Maximum="100" Style="{StaticResource CapsuleProgressStyle}" />
+
+                        <TextBlock x:Name="MixStateText" Text="混音输出：未启用麦克风，只转发音乐。"
+                                   FontSize="12" Margin="0,12,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 使用指南（默认收起） -->
+            <Border x:Name="GuidePanel" Style="{StaticResource GlassCardStyle}" Margin="0,0,0,16" Visibility="Collapsed">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,18,20,18">
+                        <TextBlock Text="使用方法（按顺序）" Style="{StaticResource SectionTitleStyle}" />
+                        <TextBlock Style="{StaticResource GuideStepStyle}"
+                                   Text="1. 准备虚拟声卡：点下方按钮从官网安装 VB-CABLE；也可以直接用 Steam 自带的“Steam Streaming Microphone”设备对，不必安装任何驱动。" />
+                        <TextBlock Style="{StaticResource GuideStepStyle}"
+                                   Text="2. 装完 VB-CABLE 后，去 Windows“设置 → 系统 → 声音”把默认播放改回扬声器 / 耳机、默认录音改回真实麦克风。否则其他软件的声音会被送进虚拟线，你听不到声音，通话里还会出现自己的回声。" />
+                        <TextBlock Style="{StaticResource GuideStepStyle}"
+                                   Text="3. 本页“输出设备”选虚拟声卡的播放端：CABLE Input (VB-Audio Virtual Cable)；用 Steam 设备对则选“扬声器 (Steam Streaming Microphone)”。" />
+                        <TextBlock Style="{StaticResource GuideStepStyle}"
+                                   Text="4. 语音软件里把麦克风选成虚拟声卡的录音端：CABLE Output (VB-Audio Virtual Cable)；Steam 设备对则选“麦克风 (Steam Streaming Microphone)”。" />
+                        <TextBlock Style="{StaticResource GuideHighlightStyle}"
+                                   Text="★ 打开 QQ 后把麦克风改成 CABLE Output (VB-Audio Virtual Cable)。QQ NT 没有麦克风选择，只能去 Windows“声音 → 更多声音设置 → 录制”把 CABLE Output 设为“默认通信设备”（多媒体的默认录音仍保持真实麦克风）。" />
+                        <TextBlock Style="{StaticResource GuideStepStyle}"
+                                   Text="5. 想把自己的说话声一起送过去，勾选“混入真实麦克风”并选择真实麦克风（例如“麦克风阵列 (Realtek(R) Audio)”），再分别调好音乐音量和麦克风音量。" />
+                        <TextBlock Style="{StaticResource GuideStepStyle}"
+                                   Text="6. 点“开始转发”。运行状态、限幅和错误都显示在页面上方，并记录到“任务消息”。" />
+                        <TextBlock Style="{StaticResource GuideStepStyle}"
+                                   Text="7. 勾选“打开工具箱后自动开始转发”，工具箱随开机自启时会自动恢复本次的设备、模式和音量；网易云还没打开就每 5 秒重试一次，不用再手动点。注意：只要转发停止，虚拟线里就没有声音——使用默认麦克风的语音软件会连你的说话声一起听不到。" />
+
+                        <TextBlock Text="注意" Style="{StaticResource SectionTitleStyle}" Margin="0,16,0,0" />
+                        <TextBlock Style="{StaticResource GuideStepStyle}"
+                                   Text="· 请戴耳机使用：外放时麦克风会把歌再收一遍，产生回声或啸叫。" />
+                        <TextBlock Style="{StaticResource GuideStepStyle}"
+                                   Text="· 不要把与输出同一块虚拟声卡的录音端选作混入麦克风，工具箱会拒绝启动，避免啸叫。" />
+                        <TextBlock Style="{StaticResource GuideStepStyle}"
+                                   Text="· “系统声音”模式捕获默认播放设备上的所有声音，因此不能输出到同一个设备，否则会循环回送。" />
+                        <TextBlock Style="{StaticResource GuideStepStyle}"
+                                   Text="· 只做实时转发，不保存音频；网易云退出、麦克风或输出设备断开时会停止转发并释放音频设备。" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 安装 VB-CABLE -->
+            <Border Style="{StaticResource GlassCardStyle}">
+                <Grid>
+                    <Border Style="{StaticResource GlassCardGlowStyle}" />
+                    <StackPanel Margin="20,18,20,18">
+                        <TextBlock Text="安装 VB-CABLE" Style="{StaticResource SectionTitleStyle}" />
+                        <TextBlock Text="在官网下载 Windows 版压缩包，解压后以管理员身份运行 VBCABLE_Setup_x64.exe，点 Install Driver，按提示重启电脑，再回到此页点“刷新设备 / 进程”。工具箱不代装驱动。"
+                                   Style="{StaticResource SectionHintStyle}" Margin="0,6,0,0" />
+                        <Button x:Name="DownloadButton" Content="下载 VB-CABLE（官方网站）" Padding="16,6"
+                                HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnDownloadClick" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

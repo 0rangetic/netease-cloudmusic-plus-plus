@@ -166,7 +166,7 @@ namespace NeteaseToolbox
             button.BackColor = surface;
             if (button != taskMessagesButton || button.ForeColor.ToArgb() != theme.Error.ToArgb())
                 button.ForeColor = tinted ? ContrastInk(surface)
-                    : role == ButtonRole.Primary || role == ButtonRole.Danger ? Color.White
+                    : role == ButtonRole.Primary || role == ButtonRole.Danger ? ContrastInk(surface)
                     : role == ButtonRole.Navigation && !active ? theme.Muted : theme.ButtonInk;
             button.FlatAppearance.BorderColor = tinted ? surface : theme.Border;
             button.FlatAppearance.MouseOverBackColor = surface;

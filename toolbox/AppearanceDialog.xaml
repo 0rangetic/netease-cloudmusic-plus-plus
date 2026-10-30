@@ -1,0 +1,165 @@
+<Window x:Class="NeteaseToolbox.Wpf.AppearanceDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="外观设置" Width="520" Height="680"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" ResizeMode="NoResize"
+        Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+        FontFamily="Microsoft YaHei UI">
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 预览区：图片 + 半透明遮罩 -->
+        <Border Grid.Row="0" Width="440" Height="200" HorizontalAlignment="Center" CornerRadius="8" ClipToBounds="True"
+                BorderThickness="1" BorderBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}">
+            <Grid>
+                <Border x:Name="PreviewSurface" />
+                <Border x:Name="PreviewWash" Background="#A5141821" />
+                <TextBlock x:Name="PreviewPlaceholder" Text="未选择背景图片" FontSize="13"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+
+        <!-- 当前图片状态 -->
+        <TextBlock Grid.Row="1" x:Name="StatusText" Text="当前未使用背景图片" FontSize="12" Margin="0,8,0,0"
+                   TextTrimming="CharacterEllipsis"
+                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+
+        <!-- 错误提示 -->
+        <TextBlock Grid.Row="2" x:Name="ErrorText" Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap"
+                   Foreground="#E76F51" Visibility="Collapsed" />
+
+        <!-- 图片操作 -->
+        <Grid Grid.Row="3" Margin="0,12,0,0">
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="ChooseImageButton" Content="选择图片…" Padding="14,5" Margin="0,0,8,0" Click="OnChooseImageClick" />
+                <Button x:Name="RemoveImageButton" Content="移除背景" Padding="14,5" Click="OnRemoveImageClick" />
+            </StackPanel>
+            <Button Content="关闭" Padding="18,5" HorizontalAlignment="Right" IsCancel="True" Click="OnCloseClick" />
+        </Grid>
+
+        <!-- 虚化程度 -->
+        <Grid Grid.Row="4" Margin="0,18,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="76" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="36" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="虚化程度" VerticalAlignment="Center" FontSize="13"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <Slider x:Name="BlurSlider" Grid.Column="1" Minimum="0" Maximum="30" TickFrequency="5"
+                    VerticalAlignment="Center" ValueChanged="OnBlurValueChanged" />
+            <TextBlock x:Name="BlurValueText" Grid.Column="2" Text="12" TextAlignment="Right" VerticalAlignment="Center"
+                       FontSize="12" Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+        </Grid>
+
+        <!-- 背景蒙版 -->
+        <Grid Grid.Row="5" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="76" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="36" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="背景蒙版" VerticalAlignment="Center" FontSize="13"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <Slider x:Name="MaskSlider" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="10"
+                    VerticalAlignment="Center" ValueChanged="OnMaskValueChanged"
+                    ToolTip="0 为完全透出背景，100 为完全遮住背景。" />
+            <TextBlock x:Name="MaskValueText" Grid.Column="2" Text="82" TextAlignment="Right" VerticalAlignment="Center"
+                       FontSize="12" Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+        </Grid>
+
+        <!-- 适应模式 -->
+        <Grid Grid.Row="6" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="76" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="适应模式" VerticalAlignment="Center" FontSize="13"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <ComboBox x:Name="FitSelector" Grid.Column="1" Width="160" HorizontalAlignment="Left"
+                      SelectionChanged="OnFitChanged">
+                <ComboBoxItem Content="填充" Tag="Fill" />
+                <ComboBoxItem Content="适应" Tag="Fit" />
+                <ComboBoxItem Content="拉伸" Tag="Stretch" />
+                <ComboBoxItem Content="平铺" Tag="Tile" />
+                <ComboBoxItem Content="居中" Tag="Center" />
+            </ComboBox>
+        </Grid>
+
+        <!-- 界面主题 -->
+        <Grid Grid.Row="7" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="76" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="界面主题" VerticalAlignment="Center" FontSize="13"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <ComboBox x:Name="ThemeModeSelector" Grid.Column="1" Width="160" HorizontalAlignment="Left"
+                      SelectionChanged="OnThemeModeChanged">
+                <ComboBoxItem Content="跟随系统" Tag="auto" />
+                <ComboBoxItem Content="浅色" Tag="light" />
+                <ComboBoxItem Content="深色" Tag="dark" />
+            </ComboBox>
+        </Grid>
+
+        <!-- 主题色 -->
+        <Grid Grid.Row="8" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="76" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="主题色" VerticalAlignment="Center" FontSize="13"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <CheckBox x:Name="AccentFollowSystem" Content="跟随系统"
+                          VerticalAlignment="Center" Checked="OnAccentFollowChanged" Unchecked="OnAccentFollowChanged"
+                          ToolTip="取消勾选后可自定义主题色。" />
+                <Button x:Name="AccentColorButton" Margin="12,0,0,0" Padding="7,3"
+                        VerticalAlignment="Center" Click="OnChooseAccentClick"
+                        AutomationProperties.Name="打开取色器" ToolTip="打开取色器。">
+                    <StackPanel Orientation="Horizontal">
+                        <Border x:Name="AccentSwatch" Width="16" Height="16" CornerRadius="4" Margin="0,0,5,0"
+                                BorderThickness="1" BorderBrush="{DynamicResource SystemControlStrokeColorCardStrokeBrush}" />
+                        <TextBlock Text="取色" FontSize="12" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <TextBox x:Name="AccentHexBox" Width="96" Margin="10,0,0,0" VerticalAlignment="Center"
+                         FontFamily="Consolas" FontSize="12" TextChanged="OnAccentHexChanged"
+                         LostFocus="OnAccentHexLostFocus" KeyDown="OnAccentHexKeyDown"
+                         AutomationProperties.Name="主题色色号"
+                         ToolTip="输入 #RRGGBB 或 RRGGBB（也支持 #RGB）。" />
+            </StackPanel>
+        </Grid>
+
+        <!-- 柔光玻璃 -->
+        <Grid Grid.Row="9" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="76" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="柔光玻璃" VerticalAlignment="Center" FontSize="13"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <CheckBox x:Name="GlassToggle" Grid.Column="1" Content="半透明卡片、导航与底栏"
+                      VerticalAlignment="Center" Checked="OnGlassToggleChanged" Unchecked="OnGlassToggleChanged"
+                      ToolTip="玻璃只使用当前背景虚化，不会自动修改。" />
+        </Grid>
+
+        <!-- 范围说明 -->
+        <TextBlock Grid.Row="10" Margin="0,14,0,0" FontSize="12" TextWrapping="Wrap"
+                   Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                   Text="背景和玻璃作用于 WPF 外壳与听歌画像页；曲风分析、设置等 WinForms 页面保持不透明。玻璃不会自动修改背景虚化，按当前滑杆值生效。主题色只影响按钮、选中项和进度条，玻璃保持中性；自定义主题色可直接输入 #RRGGBB 色号。" />
+    </Grid>
+</Window>

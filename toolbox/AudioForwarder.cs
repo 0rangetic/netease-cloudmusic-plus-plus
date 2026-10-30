@@ -40,6 +40,10 @@ namespace NeteaseToolbox
         // A virtual cable exposes both a render and a capture endpoint. Mixing its own
         // capture side back in while rendering to it would build a feedback loop.
         private static readonly string[] VirtualTokens = { "vb-audio", "cable", "voicemeeter", "virtual", "steam streaming", "loopback" };
+        // Reading FriendlyName goes through the audio service and can take hundreds of
+        // milliseconds per endpoint on some drivers, so reuse the first name seen per endpoint.
+        private static readonly object FriendlyNameLock = new object();
+        private static readonly Dictionary<string, string> FriendlyNameCache = new Dictionary<string, string>();
         private readonly object lifecycle = new object();
         // .NET Framework has no Environment.TickCount64; a shared stopwatch gives the same base.
         private static readonly Stopwatch uptime = Stopwatch.StartNew();
@@ -67,9 +71,17 @@ namespace NeteaseToolbox
             using (var enumerator = new MMDeviceEnumerator()) {
                 var result = new List<AudioEndpoint>();
                 foreach (var device in enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active))
-                    using (device) result.Add(new AudioEndpoint { Id = device.ID, Name = device.FriendlyName });
+                    using (device) result.Add(new AudioEndpoint { Id = device.ID, Name = CachedFriendlyName(device) });
                 return result;
             }
+        }
+        private static string CachedFriendlyName(MMDevice device)
+        {
+            string id = device.ID, name;
+            lock (FriendlyNameLock) if (FriendlyNameCache.TryGetValue(id, out name)) return name;
+            name = device.FriendlyName;
+            lock (FriendlyNameLock) FriendlyNameCache[id] = name;
+            return name;
         }
         public static string DefaultMicrophoneId()
         {

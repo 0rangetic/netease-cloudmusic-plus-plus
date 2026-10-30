@@ -251,6 +251,7 @@ namespace NeteaseToolbox
         private bool executing;
         private bool allowClose;
         private bool updatingDetails;
+        private float uiScale = 1f;
 
         public DedupePreviewForm(string inputRoot, string outputRoot, string scriptPath, DedupePalette palette,
             Action<string, string, string> report, Action filesChanged)
@@ -264,12 +265,12 @@ namespace NeteaseToolbox
             StartPosition = FormStartPosition.CenterParent;
             Size = new Size(1280, 820);
             MinimumSize = new Size(1060, 640);
-            AutoScaleMode = AutoScaleMode.Dpi;
-            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.None;
             BackColor = this.palette.Background;
             ForeColor = this.palette.Ink;
             Font = DedupeUiStyle.Font(9F, false);
             BuildUi();
+            ApplyDpiScale();
             rootBox.Text = inputRoot ?? "";
             recurseBox.Checked = true;
             showAssociatedBox.Checked = true;
@@ -291,6 +292,42 @@ namespace NeteaseToolbox
                 }
                 if (scanning && scanCancellation != null) scanCancellation.Cancel();
             };
+        }
+
+        // This dialog is shown from a PerMonitorV2 process whose WinForms
+        // auto-scaling is not opted in, so lay it out manually at the current DPI.
+        private void ApplyDpiScale()
+        {
+            float factor;
+            using (var graphics = CreateGraphics()) factor = graphics.DpiX / 96f;
+            if (factor <= 1.01f) return;
+            uiScale = factor;
+            var fonts = new List<KeyValuePair<Control, float>>();
+            CollectFonts(this, fonts);
+            var groupWidths = groupList.Columns.Cast<ColumnHeader>().Select(column => column.Width).ToArray();
+            var detailWidths = detailGrid.Columns.Cast<DataGridViewColumn>().Select(column => column.Width).ToArray();
+            var size = new Size((int)Math.Round(Width * factor), (int)Math.Round(Height * factor));
+            var minimum = new Size((int)Math.Round(MinimumSize.Width * factor), (int)Math.Round(MinimumSize.Height * factor));
+            Scale(new SizeF(factor, factor));
+            Size = size;
+            MinimumSize = minimum;
+            foreach (var item in fonts) item.Key.Font = DedupeUiStyle.Font(item.Value, item.Key.Font.Bold);
+            for (int i = 0; i < groupWidths.Length; i++)
+                groupList.Columns[i].Width = Math.Max(1, (int)Math.Round(groupWidths[i] * factor));
+            for (int i = 0; i < detailWidths.Length; i++)
+                if (detailGrid.Columns[i].AutoSizeMode == DataGridViewAutoSizeColumnMode.None)
+                    detailGrid.Columns[i].Width = Math.Max(1, (int)Math.Round(detailWidths[i] * factor));
+        }
+
+        private int Ui(int value) { return (int)Math.Round(value * uiScale); }
+
+        private static void CollectFonts(Control root, List<KeyValuePair<Control, float>> fonts)
+        {
+            foreach (Control child in root.Controls)
+            {
+                fonts.Add(new KeyValuePair<Control, float>(child, child.Font.Size));
+                CollectFonts(child, fonts);
+            }
         }
 
         private void BuildUi()
@@ -373,9 +410,9 @@ namespace NeteaseToolbox
             config.Controls.Add(scanStatus);
             config.Resize += delegate
             {
-                rootBox.Width = Math.Max(220, config.ClientSize.Width - 92 - 110);
-                browseButton.Left = config.ClientSize.Width - browseButton.Width - 16;
-                scanStatus.Width = Math.Max(200, config.ClientSize.Width - scanStatus.Left - 16);
+                rootBox.Width = Math.Max(Ui(220), config.ClientSize.Width - Ui(92) - Ui(110));
+                browseButton.Left = config.ClientSize.Width - browseButton.Width - Ui(16);
+                scanStatus.Width = Math.Max(Ui(200), config.ClientSize.Width - scanStatus.Left - Ui(16));
             };
             layout.Controls.Add(config, 0, 0);
 
@@ -410,7 +447,7 @@ namespace NeteaseToolbox
             {
                 try
                 {
-                    if (split.Width > 760) split.SplitterDistance = Math.Max(320, Math.Min(560, split.Width - 420));
+                    if (split.Width > Ui(760)) split.SplitterDistance = Math.Max(Ui(320), Math.Min(Ui(560), split.Width - Ui(420)));
                 }
                 catch { }
             };
@@ -487,9 +524,9 @@ namespace NeteaseToolbox
             detailHeader.Controls.Add(setKeepButton);
             detailHeader.Resize += delegate
             {
-                setKeepButton.Left = Math.Max(260, detailHeader.ClientSize.Width - setKeepButton.Width - 8);
-                skipGroupBox.Left = Math.Max(180, setKeepButton.Left - skipGroupBox.Width - 10);
-                detailTitle.Width = Math.Max(120, skipGroupBox.Left - detailTitle.Left - 10);
+                setKeepButton.Left = Math.Max(Ui(260), detailHeader.ClientSize.Width - setKeepButton.Width - Ui(8));
+                skipGroupBox.Left = Math.Max(Ui(180), setKeepButton.Left - skipGroupBox.Width - Ui(10));
+                detailTitle.Width = Math.Max(Ui(120), skipGroupBox.Left - detailTitle.Left - Ui(10));
             };
             detailGrid.Name = "DedupeDetailGrid";
             detailGrid.Dock = DockStyle.Fill;
